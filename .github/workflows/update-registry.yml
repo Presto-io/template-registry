@@ -106,3 +106,4 @@ jobs:
           destination-repository-name: registry-deploy
           target-directory: templates/
           commit-message: "chore: update template registry"
+          user-email: github-actions[bot]@users.noreply.github.com
