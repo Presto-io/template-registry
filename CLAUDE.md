@@ -127,15 +127,24 @@ jobs:
 
       # 推送到 registry-deploy 仓库
       - name: Deploy to registry-deploy
-        uses: cpina/github-action-push-to-another-repository@main
         env:
-          SSH_DEPLOY_KEY: ${{ secrets.REGISTRY_DEPLOY_KEY }}
-        with:
-          source-directory: output/deploy/
-          destination-github-username: Presto-io
-          destination-repository-name: registry-deploy
-          target-directory: templates/
-          commit-message: "chore: update template registry"
+          GH_TOKEN: ${{ secrets.PRESTO_PAT }}
+        run: |
+          git clone https://x-access-token:${GH_TOKEN}@github.com/Presto-io/registry-deploy.git /tmp/deploy
+
+          rm -rf /tmp/deploy/templates
+          cp -r output/deploy /tmp/deploy/templates
+
+          cd /tmp/deploy
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add templates/
+          if git diff --cached --quiet; then
+            echo "No changes to registry"
+            exit 0
+          fi
+          git commit -m "chore: update template registry"
+          git push
 ```
 
 ### build_registry.py 主要功能
@@ -269,6 +278,8 @@ CATEGORY_LABELS = {
 ## 将来扩展
 
 此仓库的模式将被 `plugin-registry` 和 `agent-skill-registry` 复用。共享 CI workflow 在 `Presto-io/.github` 组织仓库中。
+
+跨仓库推送统一使用 `PRESTO_PAT`（Personal Access Token），通过 HTTPS clone + push 部署到对应的 `*-deploy` 仓库。与 `Presto-io/Presto-Homepage` 的 CI 保持一致。
 
 各 registry 的差异：
 - topic 不同（`presto-template` vs `presto-plugin` vs `presto-agent-skill`）
