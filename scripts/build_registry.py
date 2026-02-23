@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-build_registry.py — Presto 模板注册表构建脚本
+build_registry.py — Presto 模板注册表构建脚本 (v2)
 
 子命令：
   discover  搜索 GitHub 上所有 presto-template topic 的仓库
   extract   下载二进制并提取 manifest / example / typst 源码
   compile   用 Typst CLI 将 .typ 编译为 SVG 预览
-  index     汇总 manifest 生成 registry.json
+  index     汇总 manifest 生成 registry.json (v2)
 
 环境变量：
   GITHUB_TOKEN       GitHub API token（避免 rate limit）
@@ -14,6 +14,7 @@ build_registry.py — Presto 模板注册表构建脚本
 """
 
 import argparse
+import base64
 import json
 import os
 import platform
@@ -22,7 +23,6 @@ import stat
 import subprocess
 import sys
 import textwrap
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -39,11 +39,14 @@ DISCOVER_JSON = OUTPUT_DIR / "discovered.json"
 GITHUB_API = "https://api.github.com"
 TOPIC = "presto-template"
 
-# 官方模板所在仓库（它们不通过 topic 发现，而是硬编码）
-OFFICIAL_REPO = "Presto-io/Presto"
-OFFICIAL_TEMPLATES = [
-    {"name": "gongwen", "cmd_path": "cmd/gongwen"},
-    {"name": "jiaoan-shicao", "cmd_path": "cmd/jiaoan-shicao"},
+# 官方模板仓库（monorepo，一个仓库包含多个模板）
+OFFICIAL_REPO = "Presto-io/presto-official-templates"
+
+# 支持的平台列表
+ALL_PLATFORMS = [
+    "darwin-arm64", "darwin-amd64",
+    "linux-arm64", "linux-amd64",
+    "windows-arm64", "windows-amd64",
 ]
 
 # 安全限制
@@ -51,18 +54,6 @@ MAX_MANIFEST_SIZE = 1 * 1024 * 1024   # 1 MB
 MAX_EXAMPLE_SIZE = 1 * 1024 * 1024    # 1 MB
 MAX_TYPST_SIZE = 10 * 1024 * 1024     # 10 MB
 EXEC_TIMEOUT = 30                      # 秒
-
-# 分类 label 映射
-CATEGORY_LABELS = {
-    "government": {"zh": "政务", "en": "Government"},
-    "education":  {"zh": "教育", "en": "Education"},
-    "business":   {"zh": "商务", "en": "Business"},
-    "academic":   {"zh": "学术", "en": "Academic"},
-    "legal":      {"zh": "法务", "en": "Legal"},
-    "resume":     {"zh": "简历", "en": "Resume"},
-    "creative":   {"zh": "创意", "en": "Creative"},
-    "other":      {"zh": "其他", "en": "Other"},
-}
 
 # ─── 辅助函数 ────────────────────────────────────────────────────────────
 
@@ -95,12 +86,73 @@ def find_binary_asset(assets, template_name, target_os, target_arch):
     return None
 
 
+def extract_template_names(assets):
+    """从 release assets 中提取所有唯一的模板名（支持 monorepo）。"""
+    KNOWN_OS = {"darwin", "linux", "windows"}
+    KNOWN_ARCH = {"amd64", "arm64"}
+    names = set()
+    for asset in assets:
+        aname = asset["name"].replace(".exe", "")
+        if not aname.startswith("presto-template-"):
+            continue
+        parts = aname.split("-")
+        # presto-template-<name...>-<os>-<arch>
+        if len(parts) >= 5 and parts[-2] in KNOWN_OS and parts[-1] in KNOWN_ARCH:
+            name = "-".join(parts[2:-2])
+            if name:
+                names.add(name)
+    return sorted(names)
+
+
+def parse_sha256sums(content):
+    """解析 SHA256SUMS 文件内容，返回 {filename: hash} 映射。"""
+    result = {}
+    for line in content.strip().split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split()
+        if len(parts) >= 2:
+            hash_val = parts[0]
+            # 去掉 binary mode 前缀 *
+            filename = parts[1].lstrip("*")
+            result[filename] = hash_val
+    return result
+
+
+def download_sha256sums(assets):
+    """从 release assets 下载并解析 SHA256SUMS 文件。"""
+    for asset in assets:
+        if asset["name"] == "SHA256SUMS":
+            resp = requests.get(asset["browser_download_url"], headers=github_headers())
+            if resp.status_code == 200:
+                return parse_sha256sums(resp.text)
+    return {}
+
+
+def collect_platforms(assets, template_name, sha256_map):
+    """收集模板在所有平台的下载 URL 和 SHA256。"""
+    platforms = {}
+    for plat in ALL_PLATFORMS:
+        os_name, arch = plat.split("-")
+        suffix = ".exe" if os_name == "windows" else ""
+        expected = f"presto-template-{template_name}-{os_name}-{arch}{suffix}"
+        for asset in assets:
+            if asset["name"] == expected:
+                platforms[plat] = {
+                    "url": asset["browser_download_url"],
+                    "sha256": sha256_map.get(expected, ""),
+                }
+                break
+    return platforms
+
+
 def load_existing_registry():
     """加载已有的 registry.json，如果不存在则返回空结构。"""
     if REGISTRY_JSON.exists():
         with open(REGISTRY_JSON, "r", encoding="utf-8") as f:
             return json.load(f)
-    return {"version": 1, "updatedAt": "", "categories": [], "templates": []}
+    return {"version": 2, "updatedAt": "", "templates": []}
 
 
 def safe_run(cmd, input_data=None, timeout=EXEC_TIMEOUT):
@@ -123,6 +175,34 @@ def safe_run(cmd, input_data=None, timeout=EXEC_TIMEOUT):
         return None
 
 
+def fetch_readme(repo, template_name):
+    """获取模板的 README.md（支持 monorepo 子目录）。"""
+    # 尝试多个可能的子目录路径
+    paths_to_try = [
+        f"templates/{template_name}/README.md",
+        f"cmd/{template_name}/README.md",
+        f"{template_name}/README.md",
+    ]
+
+    for path in paths_to_try:
+        url = f"{GITHUB_API}/repos/{repo}/contents/{path}"
+        resp = requests.get(url, headers=github_headers())
+        if resp.status_code == 200:
+            data = resp.json()
+            content = base64.b64decode(data.get("content", "")).decode("utf-8")
+            return content
+
+    # 回退到仓库根 README
+    url = f"{GITHUB_API}/repos/{repo}/readme"
+    resp = requests.get(url, headers=github_headers())
+    if resp.status_code == 200:
+        data = resp.json()
+        content = base64.b64decode(data.get("content", "")).decode("utf-8")
+        return content
+
+    return f"# {template_name}\n"
+
+
 # ─── discover 子命令 ─────────────────────────────────────────────────────
 
 
@@ -139,38 +219,43 @@ def cmd_discover(args):
     force = os.environ.get("FORCE_REBUILD", "").lower() == "true" or getattr(args, "force", False)
     discovered = []
 
-    # 1. 官方模板（从 Presto-io/Presto 仓库的 Release 获取）
-    print(f"\n检查官方仓库: {OFFICIAL_REPO}")
-    for tmpl in OFFICIAL_TEMPLATES:
-        name = tmpl["name"]
-        print(f"  检查官方模板: {name}")
-        release_url = f"{GITHUB_API}/repos/{OFFICIAL_REPO}/releases/latest"
-        resp = requests.get(release_url, headers=github_headers())
-        if resp.status_code != 200:
-            print(f"    ⚠ 无法获取 Release 信息: HTTP {resp.status_code}")
-            continue
-
-        release = resp.json()
+    def process_release(repo_full_name, owner, release):
+        """处理一个仓库的 release，提取所有模板（支持 monorepo）。"""
         tag = release.get("tag_name", "")
         version = tag.lstrip("v")
         published_at = release.get("published_at", "")
+        assets = release.get("assets", [])
 
-        if not force and existing_versions.get(name) == version:
-            print(f"    版本未变 ({version})，跳过")
-            continue
+        template_names = extract_template_names(assets)
+        if not template_names:
+            print(f"    ⚠ 未找到符合命名规范的二进制")
+            return
 
-        discovered.append({
-            "name": name,
-            "repo": OFFICIAL_REPO,
-            "owner": "Presto-io",
-            "version": version,
-            "tag": tag,
-            "published_at": published_at,
-            "assets": release.get("assets", []),
-            "html_url": f"https://github.com/{OFFICIAL_REPO}",
-            "is_official": True,
-        })
-        print(f"    发现新版本: {version}")
+        for name in template_names:
+            if not force and existing_versions.get(name) == version:
+                print(f"    {name}: 版本未变 ({version})，跳过")
+                continue
+
+            discovered.append({
+                "name": name,
+                "repo": repo_full_name,
+                "owner": owner,
+                "version": version,
+                "tag": tag,
+                "published_at": published_at,
+                "assets": assets,
+                "html_url": f"https://github.com/{repo_full_name}",
+            })
+            print(f"    发现: {name} v{version}")
+
+    # 1. 官方模板仓库（monorepo）
+    print(f"\n检查官方仓库: {OFFICIAL_REPO}")
+    release_url = f"{GITHUB_API}/repos/{OFFICIAL_REPO}/releases/latest"
+    resp = requests.get(release_url, headers=github_headers())
+    if resp.status_code == 200:
+        process_release(OFFICIAL_REPO, "Presto-io", resp.json())
+    else:
+        print(f"  ⚠ 无法获取 Release 信息: HTTP {resp.status_code}")
 
     # 2. 社区模板（通过 topic 搜索）
     print(f"\n搜索 GitHub topic: {TOPIC}")
@@ -197,43 +282,7 @@ def cmd_discover(args):
                 print(f"    ⚠ 无 Release，跳过")
                 continue
 
-            release = rel_resp.json()
-            tag = release.get("tag_name", "")
-            version = tag.lstrip("v")
-            published_at = release.get("published_at", "")
-
-            # 从 assets 中推测模板名（从二进制文件名提取）
-            template_name = None
-            for asset in release.get("assets", []):
-                aname = asset["name"]
-                if aname.startswith("presto-template-"):
-                    # presto-template-{name}-{os}-{arch}
-                    parts = aname.replace(".exe", "").split("-")
-                    # 去掉 presto-template- 前缀和 -{os}-{arch} 后缀
-                    if len(parts) >= 5:
-                        template_name = "-".join(parts[2:-2])
-                        break
-
-            if not template_name:
-                print(f"    ⚠ 未找到符合命名规范的二进制，跳过")
-                continue
-
-            if not force and existing_versions.get(template_name) == version:
-                print(f"    版本未变 ({version})，跳过")
-                continue
-
-            discovered.append({
-                "name": template_name,
-                "repo": full_name,
-                "owner": owner,
-                "version": version,
-                "tag": tag,
-                "published_at": published_at,
-                "assets": release.get("assets", []),
-                "html_url": repo["html_url"],
-                "is_official": False,
-            })
-            print(f"    发现: {template_name} v{version}")
+            process_release(full_name, owner, rel_resp.json())
     else:
         print(f"  ⚠ 搜索失败: HTTP {resp.status_code}")
 
@@ -264,20 +313,55 @@ def cmd_extract(args):
     current_os, current_arch = get_current_platform()
     print(f"当前平台: {current_os}-{current_arch}")
 
+    # SHA256SUMS 缓存（按 repo+tag 缓存，避免同一 release 重复下载）
+    sha256_cache = {}
+
     for tmpl in discovered:
         name = tmpl["name"]
+        repo = tmpl["repo"]
+        tag = tmpl["tag"]
         print(f"\n处理模板: {name}")
 
         out_dir = OUTPUT_DIR / name
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        # 1. 找到当前平台的二进制
-        asset = find_binary_asset(tmpl["assets"], name, current_os, current_arch)
+        assets = tmpl["assets"]
+
+        # 1. 获取 SHA256SUMS（按 release 缓存）
+        cache_key = f"{repo}@{tag}"
+        if cache_key not in sha256_cache:
+            print("  下载 SHA256SUMS ...")
+            sha256_cache[cache_key] = download_sha256sums(assets)
+            if sha256_cache[cache_key]:
+                print(f"    解析到 {len(sha256_cache[cache_key])} 条记录")
+            else:
+                print("    未找到 SHA256SUMS 文件")
+        sha256_map = sha256_cache[cache_key]
+
+        # 2. 收集所有平台的下载信息
+        platforms = collect_platforms(assets, name, sha256_map)
+        print(f"  平台覆盖: {len(platforms)}/{len(ALL_PLATFORMS)}")
+
+        # 3. 找到当前平台的二进制
+        asset = find_binary_asset(assets, name, current_os, current_arch)
         if not asset:
             print(f"  ⚠ 未找到 {current_os}-{current_arch} 的二进制")
+            # 仍保存 platforms 信息
+            meta = {
+                "name": name,
+                "repo": repo,
+                "owner": tmpl["owner"],
+                "version": tmpl["version"],
+                "tag": tag,
+                "published_at": tmpl["published_at"],
+                "html_url": tmpl["html_url"],
+                "platforms": platforms,
+            }
+            with open(out_dir / "meta.json", "w", encoding="utf-8") as f:
+                json.dump(meta, f, ensure_ascii=False, indent=2)
             continue
 
-        # 2. 下载二进制
+        # 4. 下载二进制
         print(f"  下载: {asset['name']}")
         download_url = asset["browser_download_url"]
         resp = requests.get(download_url, headers=github_headers(), stream=True)
@@ -294,7 +378,7 @@ def cmd_extract(args):
         binary_path.chmod(binary_path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
         print(f"  二进制大小: {binary_path.stat().st_size / 1024:.1f} KB")
 
-        # 3. 运行 --manifest
+        # 5. 运行 --manifest
         print("  提取 manifest.json ...")
         result = safe_run([str(binary_path), "--manifest"])
         if result and result.returncode == 0:
@@ -309,7 +393,7 @@ def cmd_extract(args):
                 print(f"    stderr: {result.stderr.decode('utf-8', errors='replace')[:500]}")
             continue
 
-        # 4. 运行 --example
+        # 6. 运行 --example
         print("  提取 example.md ...")
         result = safe_run([str(binary_path), "--example"])
         if result and result.returncode == 0:
@@ -322,7 +406,7 @@ def cmd_extract(args):
             print(f"  ⚠ --example 失败")
             continue
 
-        # 5. 管道转换：cat example.md | ./binary → output.typ
+        # 7. 管道转换：cat example.md | ./binary → output.typ
         print("  生成 output.typ ...")
         result = safe_run([str(binary_path)], input_data=example_data)
         if result and result.returncode == 0:
@@ -337,47 +421,21 @@ def cmd_extract(args):
                 print(f"    stderr: {result.stderr.decode('utf-8', errors='replace')[:500]}")
             continue
 
-        # 6. 获取 README.md
+        # 8. 获取 README.md
         print("  获取 README.md ...")
-        repo = tmpl["repo"]
-        # 官方模板的 README 在子目录下
-        if tmpl.get("is_official"):
-            for official in OFFICIAL_TEMPLATES:
-                if official["name"] == name:
-                    readme_path = official["cmd_path"]
-                    break
-            readme_url = f"{GITHUB_API}/repos/{repo}/contents/{readme_path}/README.md"
-        else:
-            readme_url = f"{GITHUB_API}/repos/{repo}/readme"
+        readme_content = fetch_readme(repo, name)
+        (out_dir / "README.md").write_text(readme_content, encoding="utf-8")
 
-        resp = requests.get(readme_url, headers=github_headers())
-        if resp.status_code == 200:
-            readme_data = resp.json()
-            import base64
-            content = base64.b64decode(readme_data.get("content", "")).decode("utf-8")
-            (out_dir / "README.md").write_text(content, encoding="utf-8")
-        else:
-            # 如果子目录没有 README，尝试仓库根目录
-            resp = requests.get(f"{GITHUB_API}/repos/{repo}/readme", headers=github_headers())
-            if resp.status_code == 200:
-                readme_data = resp.json()
-                import base64
-                content = base64.b64decode(readme_data.get("content", "")).decode("utf-8")
-                (out_dir / "README.md").write_text(content, encoding="utf-8")
-            else:
-                print(f"  ⚠ 无法获取 README")
-                (out_dir / "README.md").write_text(f"# {name}\n", encoding="utf-8")
-
-        # 7. 保存元数据
+        # 9. 保存元数据（包含 platforms）
         meta = {
             "name": name,
             "repo": repo,
             "owner": tmpl["owner"],
             "version": tmpl["version"],
-            "tag": tmpl["tag"],
+            "tag": tag,
             "published_at": tmpl["published_at"],
             "html_url": tmpl["html_url"],
-            "is_official": tmpl.get("is_official", False),
+            "platforms": platforms,
         }
         with open(out_dir / "meta.json", "w", encoding="utf-8") as f:
             json.dump(meta, f, ensure_ascii=False, indent=2)
@@ -388,43 +446,52 @@ def cmd_extract(args):
         print(f"  完成 ✓")
 
     # ─── Hero 分帧（仅 gongwen）───────────────────────────────────
+    generate_hero_source(discovered, current_os, current_arch)
+
+
+def generate_hero_source(discovered, current_os, current_arch):
+    """生成 Hero 分帧 SVG 源码（仅 gongwen）。"""
     gongwen_dir = OUTPUT_DIR / "gongwen"
     example_file = gongwen_dir / "example.md"
-    binary_path_gongwen = gongwen_dir / "presto-template-gongwen"
+    binary_path = gongwen_dir / "presto-template-gongwen"
 
-    if example_file.exists():
-        print("\n=== 生成 Hero 分帧 SVG 源码 ===")
-        example_text = example_file.read_text(encoding="utf-8")
+    if not example_file.exists():
+        return
 
-        # 重新下载二进制用于 hero 帧生成
-        for tmpl in discovered:
-            if tmpl["name"] == "gongwen":
-                asset = find_binary_asset(tmpl["assets"], "gongwen", current_os, current_arch)
-                if asset:
-                    resp = requests.get(asset["browser_download_url"], headers=github_headers(), stream=True)
-                    if resp.status_code == 200:
-                        with open(binary_path_gongwen, "wb") as f:
-                            for chunk in resp.iter_content(chunk_size=8192):
-                                f.write(chunk)
-                        binary_path_gongwen.chmod(
-                            binary_path_gongwen.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH
-                        )
-                break
+    print("\n=== 生成 Hero 分帧 SVG 源码 ===")
+    example_text = example_file.read_text(encoding="utf-8")
 
-        if binary_path_gongwen.exists():
-            frames = generate_hero_frames(example_text)
-            for i, frame_md in enumerate(frames):
-                print(f"  生成 hero-frame-{i} ...")
-                result = safe_run(
-                    [str(binary_path_gongwen)],
-                    input_data=frame_md.encode("utf-8"),
-                )
-                if result and result.returncode == 0:
-                    (gongwen_dir / f"hero-frame-{i}.typ").write_bytes(result.stdout)
-                else:
-                    print(f"    ⚠ hero-frame-{i} 生成失败")
+    # 重新下载二进制用于 hero 帧生成
+    for tmpl in discovered:
+        if tmpl["name"] == "gongwen":
+            asset = find_binary_asset(tmpl["assets"], "gongwen", current_os, current_arch)
+            if asset:
+                resp = requests.get(asset["browser_download_url"], headers=github_headers(), stream=True)
+                if resp.status_code == 200:
+                    with open(binary_path, "wb") as f:
+                        for chunk in resp.iter_content(chunk_size=8192):
+                            f.write(chunk)
+                    binary_path.chmod(
+                        binary_path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH
+                    )
+            break
 
-            binary_path_gongwen.unlink(missing_ok=True)
+    if not binary_path.exists():
+        return
+
+    frames = generate_hero_frames(example_text)
+    for i, frame_md in enumerate(frames):
+        print(f"  生成 hero-frame-{i} ...")
+        result = safe_run(
+            [str(binary_path)],
+            input_data=frame_md.encode("utf-8"),
+        )
+        if result and result.returncode == 0:
+            (gongwen_dir / f"hero-frame-{i}.typ").write_bytes(result.stdout)
+        else:
+            print(f"    ⚠ hero-frame-{i} 生成失败")
+
+    binary_path.unlink(missing_ok=True)
 
 
 def generate_hero_frames(example_md):
@@ -530,10 +597,6 @@ def cmd_compile(args):
             svgs = list(target_dir.glob("preview-*.svg"))
             print(f"  生成 {len(svgs)} 页预览 SVG")
 
-            # 重命名：Typst 输出 preview-1.svg, preview-2.svg（1-indexed）
-            # 如果 Typst 输出的是 0-indexed，需要重命名
-            # Typst 0.14+ 使用 {n} 占位符时从 1 开始
-
         # 编译 Hero 分帧 SVG（仅 gongwen）
         for hero_typ in sorted(tmpl_dir.glob("hero-frame-*.typ")):
             frame_name = hero_typ.stem  # e.g. hero-frame-0
@@ -564,12 +627,11 @@ def cmd_compile(args):
 
 
 def cmd_index(args):
-    """汇总所有模板的 manifest.json，生成 registry.json 索引。"""
-    print("=== Generate registry index ===")
+    """汇总所有模板的 manifest.json，生成 registry.json v2 索引。"""
+    print("=== Generate registry index (v2) ===")
 
     deploy_dir = OUTPUT_DIR / "deploy"
     templates = []
-    categories_seen = set()
 
     # 从 deploy 目录读取
     if deploy_dir.exists():
@@ -590,15 +652,12 @@ def cmd_index(args):
                 with open(meta_file, "r", encoding="utf-8") as f:
                     meta = json.load(f)
 
-            # 判断信任级别
+            # trust 判定
             owner = meta.get("owner", "")
-            if owner == "Presto-io":
-                trust = "official"
-            else:
-                trust = "community"
+            trust = "official" if owner == "Presto-io" else "community"
 
-            category = manifest.get("category", "other")
-            categories_seen.add(category)
+            # 预览图路径（相对于 templates 根目录）
+            preview_image = f"{tmpl_dir.name}/preview-1.svg"
 
             templates.append({
                 "name": manifest.get("name", tmpl_dir.name),
@@ -606,12 +665,15 @@ def cmd_index(args):
                 "description": manifest.get("description", ""),
                 "version": manifest.get("version", ""),
                 "author": manifest.get("author", ""),
-                "category": category,
-                "keywords": manifest.get("keywords", []),
+                "repo": meta.get("repo", ""),
                 "license": manifest.get("license", ""),
+                "category": manifest.get("category", ""),
+                "keywords": manifest.get("keywords", []),
                 "trust": trust,
-                "publishedAt": meta.get("published_at", ""),
-                "repository": meta.get("html_url", ""),
+                "platforms": meta.get("platforms", {}),
+                "minPrestoVersion": manifest.get("minPrestoVersion", ""),
+                "requiredFonts": manifest.get("requiredFonts", []),
+                "previewImage": preview_image,
             })
 
     # 合并已有的 registry 中未更新的模板
@@ -620,19 +682,11 @@ def cmd_index(args):
     for existing_tmpl in existing.get("templates", []):
         if existing_tmpl["name"] not in updated_names:
             templates.append(existing_tmpl)
-            categories_seen.add(existing_tmpl.get("category", "other"))
 
-    # 构建分类列表（只包含有模板的分类）
-    categories = []
-    for cat_id, labels in CATEGORY_LABELS.items():
-        if cat_id in categories_seen:
-            categories.append({"id": cat_id, "label": labels})
-
-    # 生成 registry.json
+    # 生成 v2 registry.json
     registry = {
-        "version": 1,
+        "version": 2,
         "updatedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "categories": categories,
         "templates": sorted(templates, key=lambda t: t["name"]),
     }
 
@@ -659,7 +713,7 @@ def cmd_index(args):
             shutil.copytree(tmpl_dir, target)
             print(f"  同步: templates/{tmpl_dir.name}/")
 
-    print(f"\n索引完成: {len(templates)} 个模板, {len(categories)} 个分类")
+    print(f"\n索引完成: {len(templates)} 个模板")
 
 
 # ─── 主入口 ──────────────────────────────────────────────────────────────
@@ -674,7 +728,7 @@ def main():
               discover   搜索 GitHub 上的模板仓库
               extract    下载二进制并提取数据
               compile    用 Typst CLI 编译 SVG
-              index      生成 registry.json 索引
+              index      生成 registry.json v2 索引
         """),
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -691,7 +745,7 @@ def main():
     p_compile.add_argument("--font-path", default="fonts/", help="字体路径")
 
     # index
-    p_index = subparsers.add_parser("index", help="生成 registry.json 索引")
+    p_index = subparsers.add_parser("index", help="生成 registry.json v2 索引")
 
     args = parser.parse_args()
 
