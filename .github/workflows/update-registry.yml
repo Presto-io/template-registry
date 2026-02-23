@@ -49,10 +49,10 @@ jobs:
           retention-days: 1
 
   # ─── Job 2: compile-and-deploy（高权限）─────────────────────────
-  # 使用可信的 Typst CLI 编译 SVG，生成索引，推送部署
+  # 使用自建 macOS runner 编译 SVG（自带华文仿宋等中文字体）
   compile-and-deploy:
     needs: extract
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macOS, ARM64]
     permissions:
       contents: write
 
@@ -77,9 +77,11 @@ jobs:
         env:
           TYPST_VERSION: "0.14.2"
         run: |
-          curl -fsSL "https://github.com/typst/typst/releases/download/v${TYPST_VERSION}/typst-x86_64-unknown-linux-musl.tar.xz" \
-            | tar -xJ --strip-components=1 -C /usr/local/bin/
-          typst --version
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL "https://github.com/typst/typst/releases/download/v${TYPST_VERSION}/typst-aarch64-apple-darwin.tar.xz" \
+            | tar -xJ --strip-components=1 -C "$HOME/.local/bin/"
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          "$HOME/.local/bin/typst" --version
 
       - name: Download fonts
         run: python scripts/download_fonts.py
