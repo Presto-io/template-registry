@@ -74,9 +74,12 @@ jobs:
           path: output/
 
       - name: Install Typst CLI
+        env:
+          TYPST_VERSION: "0.14.2"
         run: |
-          curl -fsSL https://typst.community/typst-install/install.sh | sh
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          curl -fsSL "https://github.com/typst/typst/releases/download/v${TYPST_VERSION}/typst-x86_64-unknown-linux-musl.tar.xz" \
+            | tar -xJ --strip-components=1 -C /usr/local/bin/
+          typst --version
 
       - name: Download fonts
         run: python scripts/download_fonts.py
