@@ -656,8 +656,9 @@ def cmd_index(args):
             owner = meta.get("owner", "")
             trust = "official" if owner == "Presto-io" else "community"
 
-            # 预览图路径（相对于 templates 根目录）
-            preview_image = f"{tmpl_dir.name}/preview-1.svg"
+            # 预览图路径（相对于 templates 根目录，扫描所有页）
+            preview_svgs = sorted(tmpl_dir.glob("preview-*.svg"))
+            preview_images = [f"{tmpl_dir.name}/{svg.name}" for svg in preview_svgs]
 
             templates.append({
                 "name": manifest.get("name", tmpl_dir.name),
@@ -673,7 +674,7 @@ def cmd_index(args):
                 "platforms": meta.get("platforms", {}),
                 "minPrestoVersion": manifest.get("minPrestoVersion", ""),
                 "requiredFonts": manifest.get("requiredFonts", []),
-                "previewImage": preview_image,
+                "previewImages": preview_images,
             })
 
     # 合并已有的 registry 中未更新的模板
