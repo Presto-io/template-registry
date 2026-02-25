@@ -6,9 +6,6 @@ download_fonts.py — 下载编译 SVG 预览所需的开源字体
 CI 环境中已通过 Dockerfile 或 apt 安装 Noto CJK 字体族。
 """
 
-import json
-import os
-import sys
 from pathlib import Path
 
 import requests

@@ -202,8 +202,25 @@ def fetch_readme(repo, template_name):
 
     return f"# {template_name}\n"
 
+def _build_meta(tmpl, platforms):
+    """构建模板元数据字典。"""
+    return {
+        "name": tmpl["name"],
+        "repo": tmpl["repo"],
+        "owner": tmpl["owner"],
+        "version": tmpl["version"],
+        "tag": tmpl["tag"],
+        "published_at": tmpl["published_at"],
+        "html_url": tmpl["html_url"],
+        "platforms": platforms,
+    }
 
-# ─── discover 子命令 ─────────────────────────────────────────────────────
+
+def _save_meta(path, meta):
+    """将元数据写入 JSON 文件。"""
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False, indent=2)
+
 
 
 def cmd_discover(args):
@@ -347,18 +364,7 @@ def cmd_extract(args):
         if not asset:
             print(f"  ⚠ 未找到 {current_os}-{current_arch} 的二进制")
             # 仍保存 platforms 信息
-            meta = {
-                "name": name,
-                "repo": repo,
-                "owner": tmpl["owner"],
-                "version": tmpl["version"],
-                "tag": tag,
-                "published_at": tmpl["published_at"],
-                "html_url": tmpl["html_url"],
-                "platforms": platforms,
-            }
-            with open(out_dir / "meta.json", "w", encoding="utf-8") as f:
-                json.dump(meta, f, ensure_ascii=False, indent=2)
+            _save_meta(out_dir / "meta.json", _build_meta(tmpl, platforms))
             continue
 
         # 4. 下载二进制
@@ -427,60 +433,34 @@ def cmd_extract(args):
         (out_dir / "README.md").write_text(readme_content, encoding="utf-8")
 
         # 9. 保存元数据（包含 platforms）
-        meta = {
-            "name": name,
-            "repo": repo,
-            "owner": tmpl["owner"],
-            "version": tmpl["version"],
-            "tag": tag,
-            "published_at": tmpl["published_at"],
-            "html_url": tmpl["html_url"],
-            "platforms": platforms,
-        }
-        with open(out_dir / "meta.json", "w", encoding="utf-8") as f:
-            json.dump(meta, f, ensure_ascii=False, indent=2)
+        _save_meta(out_dir / "meta.json", _build_meta(tmpl, platforms))
 
-        # 清理二进制（不传到下一个 Job）
-        binary_path.unlink(missing_ok=True)
+        # 清理二进制（不传到下一个 Job，gongwen 延后到 hero 帧生成之后）
+        if name != "gongwen":
+            binary_path.unlink(missing_ok=True)
 
         print(f"  完成 ✓")
 
     # ─── Hero 分帧（仅 gongwen）───────────────────────────────────
-    generate_hero_source(discovered, current_os, current_arch)
+    generate_hero_source()
+    # 清理 gongwen 二进制
+    gongwen_bin = OUTPUT_DIR / "gongwen" / "presto-template-gongwen"
+    gongwen_bin.unlink(missing_ok=True)
 
 
-def generate_hero_source(discovered, current_os, current_arch):
-    """生成 Hero 分帧 SVG 源码（仅 gongwen）。"""
+def generate_hero_source():
+    """生成 Hero 分帧 SVG 源码（仅 gongwen，复用 extract 阶段保留的二进制）。"""
     gongwen_dir = OUTPUT_DIR / "gongwen"
     example_file = gongwen_dir / "example.md"
     binary_path = gongwen_dir / "presto-template-gongwen"
 
-    if not example_file.exists():
+    if not example_file.exists() or not binary_path.exists():
         return
 
     print("\n=== 生成 Hero 分帧 SVG 源码 ===")
     example_text = example_file.read_text(encoding="utf-8")
 
-    # 重新下载二进制用于 hero 帧生成
-    for tmpl in discovered:
-        if tmpl["name"] == "gongwen":
-            asset = find_binary_asset(tmpl["assets"], "gongwen", current_os, current_arch)
-            if asset:
-                resp = requests.get(asset["browser_download_url"], headers=github_headers(), stream=True)
-                if resp.status_code == 200:
-                    with open(binary_path, "wb") as f:
-                        for chunk in resp.iter_content(chunk_size=8192):
-                            f.write(chunk)
-                    binary_path.chmod(
-                        binary_path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH
-                    )
-            break
-
-    if not binary_path.exists():
-        return
-
-    frames = generate_hero_frames(example_text)
-    for i, frame_md in enumerate(frames):
+    for i, frame_md in enumerate(generate_hero_frames(example_text)):
         print(f"  生成 hero-frame-{i} ...")
         result = safe_run(
             [str(binary_path)],
@@ -490,8 +470,6 @@ def generate_hero_source(discovered, current_os, current_arch):
             (gongwen_dir / f"hero-frame-{i}.typ").write_bytes(result.stdout)
         else:
             print(f"    ⚠ hero-frame-{i} 生成失败")
-
-    binary_path.unlink(missing_ok=True)
 
 
 def generate_hero_frames(example_md):
