@@ -1,0 +1,22 @@
+# Build output
+output/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Runner deployment (not part of this repo)
+runner/
