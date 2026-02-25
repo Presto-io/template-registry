@@ -36,7 +36,7 @@ RUN mkdir -p /fonts
 COPY fonts/ /fonts/
 
 # Python 依赖
-RUN pip3 install --break-system-packages requests
+RUN pip3 install --break-system-packages requests==2.32.5
 
 # 工作目录
 WORKDIR /work

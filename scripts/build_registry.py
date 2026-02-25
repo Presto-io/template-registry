@@ -15,9 +15,11 @@ build_registry.py — Presto 模板注册表构建脚本 (v2)
 
 import argparse
 import base64
+import hashlib
 import json
 import os
 import platform
+import re
 import shutil
 import stat
 import subprocess
@@ -54,6 +56,8 @@ MAX_MANIFEST_SIZE = 1 * 1024 * 1024   # 1 MB
 MAX_EXAMPLE_SIZE = 1 * 1024 * 1024    # 1 MB
 MAX_TYPST_SIZE = 10 * 1024 * 1024     # 10 MB
 EXEC_TIMEOUT = 30                      # 秒
+COMPILE_TIMEOUT = 120                  # typst 编译超时（秒）
+VALID_TEMPLATE_NAME = re.compile(r'^[a-z0-9]([a-z0-9-]*[a-z0-9])?$')
 
 # ─── 辅助函数 ────────────────────────────────────────────────────────────
 
@@ -99,8 +103,10 @@ def extract_template_names(assets):
         # presto-template-<name...>-<os>-<arch>
         if len(parts) >= 5 and parts[-2] in KNOWN_OS and parts[-1] in KNOWN_ARCH:
             name = "-".join(parts[2:-2])
-            if name:
+            if name and VALID_TEMPLATE_NAME.match(name):
                 names.add(name)
+            elif name:
+                print(f"  ⚠ 无效模板名，已跳过: {name!r}")
     return sorted(names)
 
 
@@ -118,6 +124,23 @@ def parse_sha256sums(content):
             filename = parts[1].lstrip("*")
             result[filename] = hash_val
     return result
+
+
+def verify_sha256(file_path, expected_hash):
+    """校验文件 SHA256。匹配返回 True，不匹配返回 False，无期望值返回 None。"""
+    if not expected_hash:
+        return None
+    sha256 = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            sha256.update(chunk)
+    actual = sha256.hexdigest()
+    if actual != expected_hash:
+        print(f"  !! SHA256 不匹配!")
+        print(f"     期望: {expected_hash}")
+        print(f"     实际: {actual}")
+        return False
+    return True
 
 
 def download_sha256sums(assets):
@@ -156,8 +179,13 @@ def load_existing_registry():
 
 
 def safe_run(cmd, input_data=None, timeout=EXEC_TIMEOUT):
-    """安全地运行子进程，带超时和大小限制。"""
+    """安全地运行子进程，带超时、环境清洗和网络隔离。"""
     env = {"PATH": "/usr/local/bin:/usr/bin:/bin"}
+
+    # Linux 上使用 unshare --net 隔离网络（阻止不可信二进制外传数据）
+    if sys.platform == "linux":
+        cmd = ["unshare", "--net", "--map-root-user", "--"] + list(cmd)
+
     try:
         result = subprocess.run(
             cmd,
@@ -262,6 +290,7 @@ def cmd_discover(args):
                 "published_at": published_at,
                 "assets": assets,
                 "html_url": f"https://github.com/{repo_full_name}",
+                "readme": fetch_readme(repo_full_name, name),
             })
             print(f"    发现: {name} v{version}")
 
@@ -337,6 +366,11 @@ def cmd_extract(args):
         name = tmpl["name"]
         repo = tmpl["repo"]
         tag = tmpl["tag"]
+
+        if not VALID_TEMPLATE_NAME.match(name):
+            print(f"\n⚠ 无效模板名，跳过: {name!r}")
+            continue
+
         print(f"\n处理模板: {name}")
 
         out_dir = OUTPUT_DIR / name
@@ -384,6 +418,18 @@ def cmd_extract(args):
         binary_path.chmod(binary_path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
         print(f"  二进制大小: {binary_path.stat().st_size / 1024:.1f} KB")
 
+        # 4.5 校验 SHA256
+        expected_hash = sha256_map.get(asset["name"], "")
+        verification = verify_sha256(binary_path, expected_hash)
+        if verification is False:
+            print(f"  !! SHA256 验证失败，跳过该模板")
+            binary_path.unlink(missing_ok=True)
+            continue
+        elif verification is None:
+            print(f"  ⚠ 无 SHA256 记录，无法验证")
+        else:
+            print(f"  SHA256 验证通过")
+
         # 5. 运行 --manifest
         print("  提取 manifest.json ...")
         result = safe_run([str(binary_path), "--manifest"])
@@ -427,9 +473,8 @@ def cmd_extract(args):
                 print(f"    stderr: {result.stderr.decode('utf-8', errors='replace')[:500]}")
             continue
 
-        # 8. 获取 README.md
-        print("  获取 README.md ...")
-        readme_content = fetch_readme(repo, name)
+        # 8. 获取 README.md（从 discover 阶段已获取的数据）
+        readme_content = tmpl.get("readme", f"# {name}\n")
         (out_dir / "README.md").write_text(readme_content, encoding="utf-8")
 
         # 9. 保存元数据（包含 platforms）
@@ -540,7 +585,7 @@ def cmd_compile(args):
 
     # 确认 typst 可用
     try:
-        result = subprocess.run(["typst", "--version"], capture_output=True, text=True)
+        result = subprocess.run(["typst", "--version"], capture_output=True, text=True, timeout=10)
         print(f"Typst 版本: {result.stdout.strip()}")
     except FileNotFoundError:
         print("⚠ 未找到 typst CLI，请先安装")
@@ -563,11 +608,18 @@ def cmd_compile(args):
 
         # 编译主预览 SVG（多页输出 preview-{n}.svg）
         svg_pattern = str(target_dir / "preview-{n}.svg")
-        result = subprocess.run(
-            ["typst", "compile", "--font-path", font_path, str(typ_file), svg_pattern],
-            capture_output=True,
-            text=True,
-        )
+        compile_env = {"PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin")}
+        try:
+            result = subprocess.run(
+                ["typst", "compile", "--font-path", font_path, str(typ_file), svg_pattern],
+                capture_output=True,
+                text=True,
+                timeout=COMPILE_TIMEOUT,
+                env=compile_env,
+            )
+        except subprocess.TimeoutExpired:
+            print(f"  ⚠ 编译超时 ({COMPILE_TIMEOUT}s): {name}")
+            continue
         if result.returncode != 0:
             print(f"  ⚠ 编译失败: {result.stderr[:500]}")
         else:
@@ -579,14 +631,20 @@ def cmd_compile(args):
         for hero_typ in sorted(tmpl_dir.glob("hero-frame-*.typ")):
             frame_name = hero_typ.stem  # e.g. hero-frame-0
             hero_svg = target_dir / f"{frame_name}.svg"
-            result = subprocess.run(
-                [
-                    "typst", "compile", "--font-path", font_path,
-                    str(hero_typ), str(hero_svg),
-                ],
-                capture_output=True,
-                text=True,
-            )
+            try:
+                result = subprocess.run(
+                    [
+                        "typst", "compile", "--font-path", font_path,
+                        str(hero_typ), str(hero_svg),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=COMPILE_TIMEOUT,
+                    env=compile_env,
+                )
+            except subprocess.TimeoutExpired:
+                print(f"  ⚠ {frame_name} 编译超时 ({COMPILE_TIMEOUT}s)")
+                continue
             if result.returncode != 0:
                 print(f"  ⚠ {frame_name} 编译失败: {result.stderr[:300]}")
             else:
