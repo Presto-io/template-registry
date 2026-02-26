@@ -5,6 +5,7 @@ build_registry.py — Presto 模板注册表构建脚本 (v2)
 子命令：
   discover  搜索 GitHub 上所有 presto-template topic 的仓库
   extract   下载二进制并提取 manifest / example / typst 源码
+  build     从源码编译 verified 模板，上传到 GitHub Release
   compile   用 Typst CLI 将 .typ 编译为 SVG 预览
   index     汇总 manifest 生成 registry.json (v2)
 
@@ -58,6 +59,20 @@ MAX_TYPST_SIZE = 10 * 1024 * 1024     # 10 MB
 EXEC_TIMEOUT = 30                      # 秒
 COMPILE_TIMEOUT = 120                  # typst 编译超时（秒）
 VALID_TEMPLATE_NAME = re.compile(r'^[a-z0-9]([a-z0-9-]*[a-z0-9])?$')
+
+# Verified 模板编译
+VERIFIED_TEMPLATES_JSON = ROOT_DIR / "verified-templates.json"
+BUILD_OUTPUT_DIR = OUTPUT_DIR / "verified-build"
+BUILD_TIMEOUT = 300                    # 5 分钟
+MAX_ARTIFACT_SIZE = 50 * 1024 * 1024   # 50 MB
+DOCKER_MEMORY = "2g"
+DOCKER_CPUS = "2"
+BUILD_PLATFORMS = [
+    ("darwin", "arm64"), ("darwin", "amd64"),
+    ("linux", "arm64"), ("linux", "amd64"),
+    ("windows", "arm64"), ("windows", "amd64"),
+]
+REGISTRY_REPO = "Presto-io/template-registry"
 
 # ─── 辅助函数 ────────────────────────────────────────────────────────────
 
@@ -176,6 +191,70 @@ def load_existing_registry():
         with open(REGISTRY_JSON, "r", encoding="utf-8") as f:
             return json.load(f)
     return {"version": 2, "updatedAt": "", "templates": []}
+
+
+def load_verified_templates():
+    """加载 verified-templates.json，返回条目列表。"""
+    if not VERIFIED_TEMPLATES_JSON.exists():
+        return []
+    with open(VERIFIED_TEMPLATES_JSON, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def compute_sha256(file_path):
+    """计算文件 SHA256 哈希值。"""
+    sha256 = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            sha256.update(chunk)
+    return sha256.hexdigest()
+
+
+def docker_run(image, cmd, volumes=None, env_vars=None, network=True,
+               read_only=False, timeout=BUILD_TIMEOUT):
+    """运行 Docker 容器，带安全约束。
+
+    Args:
+        image: Docker 镜像名
+        cmd: 容器内执行的 shell 命令
+        volumes: [(source, dest, mode), ...] 卷挂载列表
+        env_vars: 环境变量字典
+        network: False 则 --network none
+        read_only: True 则 --read-only + tmpfs
+        timeout: 超时秒数
+    """
+    docker_cmd = [
+        "docker", "run", "--rm",
+        "--memory", DOCKER_MEMORY,
+        "--cpus", DOCKER_CPUS,
+    ]
+    if not network:
+        docker_cmd.append("--network=none")
+    if read_only:
+        docker_cmd.extend(["--read-only", "--tmpfs", "/tmp:size=200M"])
+    for vol_src, vol_dst, vol_mode in (volumes or []):
+        docker_cmd.extend(["-v", f"{vol_src}:{vol_dst}:{vol_mode}"])
+    for key, val in (env_vars or {}).items():
+        docker_cmd.extend(["-e", f"{key}={val}"])
+    docker_cmd.extend([image, "sh", "-c", cmd])
+
+    try:
+        result = subprocess.run(
+            docker_cmd, capture_output=True, timeout=timeout,
+        )
+        return result
+    except subprocess.TimeoutExpired:
+        print(f"  ⚠ Docker 命令超时 ({timeout}s)")
+        return None
+    except Exception as e:
+        print(f"  ⚠ Docker 命令执行失败: {e}")
+        return None
+
+
+def _cleanup_volumes(volume_names):
+    """清理 Docker volumes。"""
+    for vol in volume_names:
+        subprocess.run(["docker", "volume", "rm", "-f", vol], capture_output=True)
 
 
 def safe_run(cmd, input_data=None, timeout=EXEC_TIMEOUT):
@@ -342,7 +421,7 @@ def cmd_discover(args):
 
 
 def cmd_extract(args):
-    """下载二进制并提取 manifest / example / typst 源码。"""
+    """提取模板数据：官方模板下载二进制提取，community 模板直接从 repo 读取。"""
     print("=== Extract template data ===")
 
     if not DISCOVER_JSON.exists():
@@ -366,6 +445,7 @@ def cmd_extract(args):
         name = tmpl["name"]
         repo = tmpl["repo"]
         tag = tmpl["tag"]
+        owner = tmpl["owner"]
 
         if not VALID_TEMPLATE_NAME.match(name):
             print(f"\n⚠ 无效模板名，跳过: {name!r}")
@@ -393,104 +473,155 @@ def cmd_extract(args):
         platforms = collect_platforms(assets, name, sha256_map)
         print(f"  平台覆盖: {len(platforms)}/{len(ALL_PLATFORMS)}")
 
-        # 3. 找到当前平台的二进制
-        asset = find_binary_asset(assets, name, current_os, current_arch)
-        if not asset:
-            print(f"  ⚠ 未找到 {current_os}-{current_arch} 的二进制")
-            # 仍保存 platforms 信息
-            _save_meta(out_dir / "meta.json", _build_meta(tmpl, platforms))
-            continue
-
-        # 4. 下载二进制
-        print(f"  下载: {asset['name']}")
-        download_url = asset["browser_download_url"]
-        resp = requests.get(download_url, headers=github_headers(), stream=True)
-        if resp.status_code != 200:
-            print(f"  ⚠ 下载失败: HTTP {resp.status_code}")
-            continue
-
-        binary_path = out_dir / f"presto-template-{name}"
-        with open(binary_path, "wb") as f:
-            for chunk in resp.iter_content(chunk_size=8192):
-                f.write(chunk)
-
-        # 设置执行权限
-        binary_path.chmod(binary_path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
-        print(f"  二进制大小: {binary_path.stat().st_size / 1024:.1f} KB")
-
-        # 4.5 校验 SHA256
-        expected_hash = sha256_map.get(asset["name"], "")
-        verification = verify_sha256(binary_path, expected_hash)
-        if verification is False:
-            print(f"  !! SHA256 验证失败，跳过该模板")
-            binary_path.unlink(missing_ok=True)
-            continue
-        elif verification is None:
-            print(f"  ⚠ 无 SHA256 记录，无法验证")
+        # 3. 区分官方和 community 模板
+        if owner == "Presto-io":
+            # 官方模板：下载二进制提取 manifest/example/output.typ（用于 SVG 预览）
+            _extract_official_template(tmpl, out_dir, name, assets, platforms,
+                                       sha256_map, current_os, current_arch)
         else:
-            print(f"  SHA256 验证通过")
-
-        # 5. 运行 --manifest
-        print("  提取 manifest.json ...")
-        result = safe_run([str(binary_path), "--manifest"])
-        if result and result.returncode == 0:
-            manifest_data = result.stdout
-            if len(manifest_data) > MAX_MANIFEST_SIZE:
-                print(f"  ⚠ manifest 超出大小限制 ({len(manifest_data)} bytes)")
-                continue
-            (out_dir / "manifest.json").write_bytes(manifest_data)
-        else:
-            print(f"  ⚠ --manifest 失败")
-            if result:
-                print(f"    stderr: {result.stderr.decode('utf-8', errors='replace')[:500]}")
-            continue
-
-        # 6. 运行 --example
-        print("  提取 example.md ...")
-        result = safe_run([str(binary_path), "--example"])
-        if result and result.returncode == 0:
-            example_data = result.stdout
-            if len(example_data) > MAX_EXAMPLE_SIZE:
-                print(f"  ⚠ example 超出大小限制 ({len(example_data)} bytes)")
-                continue
-            (out_dir / "example.md").write_bytes(example_data)
-        else:
-            print(f"  ⚠ --example 失败")
-            continue
-
-        # 7. 管道转换：cat example.md | ./binary → output.typ
-        print("  生成 output.typ ...")
-        result = safe_run([str(binary_path)], input_data=example_data)
-        if result and result.returncode == 0:
-            typst_data = result.stdout
-            if len(typst_data) > MAX_TYPST_SIZE:
-                print(f"  ⚠ typst 输出超出大小限制 ({len(typst_data)} bytes)")
-                continue
-            (out_dir / "output.typ").write_bytes(typst_data)
-        else:
-            print(f"  ⚠ 管道转换失败")
-            if result:
-                print(f"    stderr: {result.stderr.decode('utf-8', errors='replace')[:500]}")
-            continue
-
-        # 8. 获取 README.md（从 discover 阶段已获取的数据）
-        readme_content = tmpl.get("readme", f"# {name}\n")
-        (out_dir / "README.md").write_text(readme_content, encoding="utf-8")
-
-        # 9. 保存元数据（包含 platforms）
-        _save_meta(out_dir / "meta.json", _build_meta(tmpl, platforms))
-
-        # 清理二进制（不传到下一个 Job，gongwen 延后到 hero 帧生成之后）
-        if name != "gongwen":
-            binary_path.unlink(missing_ok=True)
-
-        print(f"  完成 ✓")
+            # community 模板：直接从 repo 读取 manifest.json + README
+            _extract_community_template(tmpl, out_dir, name, repo, platforms)
 
     # ─── Hero 分帧（仅 gongwen）───────────────────────────────────
     generate_hero_source()
     # 清理 gongwen 二进制
     gongwen_bin = OUTPUT_DIR / "gongwen" / "presto-template-gongwen"
     gongwen_bin.unlink(missing_ok=True)
+
+
+def _extract_official_template(tmpl, out_dir, name, assets, platforms,
+                               sha256_map, current_os, current_arch):
+    """官方模板：下载二进制提取 manifest/example/output.typ。"""
+    asset = find_binary_asset(assets, name, current_os, current_arch)
+    if not asset:
+        print(f"  ⚠ 未找到 {current_os}-{current_arch} 的二进制")
+        _save_meta(out_dir / "meta.json", _build_meta(tmpl, platforms))
+        return
+
+    # 下载二进制
+    print(f"  下载: {asset['name']}")
+    download_url = asset["browser_download_url"]
+    resp = requests.get(download_url, headers=github_headers(), stream=True)
+    if resp.status_code != 200:
+        print(f"  ⚠ 下载失败: HTTP {resp.status_code}")
+        return
+
+    binary_path = out_dir / f"presto-template-{name}"
+    with open(binary_path, "wb") as f:
+        for chunk in resp.iter_content(chunk_size=8192):
+            f.write(chunk)
+
+    binary_path.chmod(binary_path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    print(f"  二进制大小: {binary_path.stat().st_size / 1024:.1f} KB")
+
+    # 校验 SHA256
+    expected_hash = sha256_map.get(asset["name"], "")
+    verification = verify_sha256(binary_path, expected_hash)
+    if verification is False:
+        print(f"  !! SHA256 验证失败，跳过该模板")
+        binary_path.unlink(missing_ok=True)
+        return
+    elif verification is None:
+        print(f"  ⚠ 无 SHA256 记录，无法验证")
+    else:
+        print(f"  SHA256 验证通过")
+
+    # 运行 --manifest
+    print("  提取 manifest.json ...")
+    result = safe_run([str(binary_path), "--manifest"])
+    if result and result.returncode == 0:
+        manifest_data = result.stdout
+        if len(manifest_data) > MAX_MANIFEST_SIZE:
+            print(f"  ⚠ manifest 超出大小限制 ({len(manifest_data)} bytes)")
+            return
+        (out_dir / "manifest.json").write_bytes(manifest_data)
+    else:
+        print(f"  ⚠ --manifest 失败")
+        if result:
+            print(f"    stderr: {result.stderr.decode('utf-8', errors='replace')[:500]}")
+        return
+
+    # 运行 --example
+    print("  提取 example.md ...")
+    result = safe_run([str(binary_path), "--example"])
+    if result and result.returncode == 0:
+        example_data = result.stdout
+        if len(example_data) > MAX_EXAMPLE_SIZE:
+            print(f"  ⚠ example 超出大小限制 ({len(example_data)} bytes)")
+            return
+        (out_dir / "example.md").write_bytes(example_data)
+    else:
+        print(f"  ⚠ --example 失败")
+        return
+
+    # 管道转换：cat example.md | ./binary → output.typ
+    print("  生成 output.typ ...")
+    result = safe_run([str(binary_path)], input_data=example_data)
+    if result and result.returncode == 0:
+        typst_data = result.stdout
+        if len(typst_data) > MAX_TYPST_SIZE:
+            print(f"  ⚠ typst 输出超出大小限制 ({len(typst_data)} bytes)")
+            return
+        (out_dir / "output.typ").write_bytes(typst_data)
+    else:
+        print(f"  ⚠ 管道转换失败")
+        if result:
+            print(f"    stderr: {result.stderr.decode('utf-8', errors='replace')[:500]}")
+        return
+
+    # README
+    readme_content = tmpl.get("readme", f"# {name}\n")
+    (out_dir / "README.md").write_text(readme_content, encoding="utf-8")
+
+    # 保存元数据
+    _save_meta(out_dir / "meta.json", _build_meta(tmpl, platforms))
+
+    # 清理二进制（gongwen 延后到 hero 帧生成之后）
+    if name != "gongwen":
+        binary_path.unlink(missing_ok=True)
+
+    print(f"  完成 ✓")
+
+
+def _extract_community_template(tmpl, out_dir, name, repo, platforms):
+    """community 模板：直接从 repo 读取 manifest.json + README，不执行二进制。"""
+    print(f"  community 模板，从 repo 读取元数据")
+
+    # 从 repo 读取 manifest.json（支持 monorepo 子目录）
+    manifest_paths = [
+        f"templates/{name}/manifest.json",
+        f"cmd/{name}/manifest.json",
+        f"{name}/manifest.json",
+        "manifest.json",
+    ]
+
+    manifest_content = None
+    for path in manifest_paths:
+        url = f"{GITHUB_API}/repos/{repo}/contents/{path}"
+        resp = requests.get(url, headers=github_headers())
+        if resp.status_code == 200:
+            data = resp.json()
+            manifest_content = base64.b64decode(data.get("content", "")).decode("utf-8")
+            print(f"  读取 manifest.json（{path}）")
+            break
+
+    if manifest_content:
+        manifest_data = manifest_content.encode("utf-8")
+        if len(manifest_data) > MAX_MANIFEST_SIZE:
+            print(f"  ⚠ manifest 超出大小限制 ({len(manifest_data)} bytes)")
+        else:
+            (out_dir / "manifest.json").write_bytes(manifest_data)
+    else:
+        print(f"  ⚠ 未找到 manifest.json")
+
+    # README
+    readme_content = tmpl.get("readme", f"# {name}\n")
+    (out_dir / "README.md").write_text(readme_content, encoding="utf-8")
+
+    # 保存元数据
+    _save_meta(out_dir / "meta.json", _build_meta(tmpl, platforms))
+
+    print(f"  完成 ✓")
 
 
 def generate_hero_source():
@@ -572,6 +703,292 @@ def generate_hero_frames(example_md):
     frames.append(example_md)
 
     return frames
+
+
+# ─── build 子命令（verified 模板编译）──────────────────────────────────────
+
+
+def cmd_build(args):
+    """从源码编译 verified 模板，上传到 template-registry Release。"""
+    print("=== Build verified templates ===")
+
+    entries = load_verified_templates()
+    if not entries:
+        print("No verified templates configured")
+        return
+
+    BUILD_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    for entry in entries:
+        repo = entry["repo"]
+        ref = entry["ref"]
+        lang = entry["lang"]
+        name = entry["name"]
+        version = ref.lstrip("v")
+
+        if not VALID_TEMPLATE_NAME.match(name):
+            print(f"\n⚠ 无效模板名，跳过: {name!r}")
+            continue
+
+        print(f"\n{'='*60}")
+        print(f"编译 verified 模板: {name} ({repo}@{ref})")
+        print(f"{'='*60}")
+
+        if lang != "go":
+            print(f"  ⚠ 暂不支持语言: {lang}，跳过")
+            continue
+
+        tmpl_build_dir = BUILD_OUTPUT_DIR / name
+        tmpl_build_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            _build_verified_template(entry, tmpl_build_dir, name, repo, ref, version)
+        except Exception as e:
+            print(f"  ⚠ 编译异常，跳过 {name}: {e}")
+            continue
+
+
+def _build_verified_template(entry, tmpl_build_dir, name, repo, ref, version):
+    """编译单个 verified 模板的完整流程。"""
+    # ── Step 0: 克隆源码 ──
+    source_dir = tmpl_build_dir / "source"
+    if source_dir.exists():
+        shutil.rmtree(source_dir)
+
+    print(f"  克隆源码: {repo}@{ref}")
+    clone_result = subprocess.run(
+        ["git", "clone", "--depth", "1", "--branch", ref,
+         f"https://github.com/{repo}.git", str(source_dir)],
+        capture_output=True, text=True, timeout=120,
+    )
+    if clone_result.returncode != 0:
+        print(f"  ⚠ 克隆失败: {clone_result.stderr[:500]}")
+        return
+
+    # ── Step 1: 创建 Docker volumes ──
+    vol_src = f"verified-src-{name}"
+    vol_mod = f"verified-mod-{name}"
+    vol_out = f"verified-out-{name}"
+    volumes = [vol_src, vol_mod, vol_out]
+
+    for vol in volumes:
+        subprocess.run(["docker", "volume", "rm", "-f", vol], capture_output=True)
+        subprocess.run(["docker", "volume", "create", vol], capture_output=True)
+
+    # 复制源码到 Docker volume
+    print("  复制源码到 Docker volume ...")
+    subprocess.run(
+        ["docker", "run", "--rm",
+         "-v", f"{source_dir}:/host-src:ro",
+         "-v", f"{vol_src}:/src",
+         "alpine", "sh", "-c", "cp -a /host-src/. /src/"],
+        capture_output=True, timeout=60,
+    )
+
+    # ── Step 2: 下载依赖（有网络）──
+    print("  下载依赖 (go mod download) ...")
+    result = docker_run(
+        image="golang:1.24",
+        cmd="cd /src && go mod download",
+        volumes=[
+            (vol_src, "/src", "rw"),
+            (vol_mod, "/go/pkg/mod", "rw"),
+        ],
+        network=True,
+    )
+    if result is None or result.returncode != 0:
+        stderr = result.stderr.decode("utf-8", errors="replace")[:500] if result else ""
+        print(f"  ⚠ 依赖下载失败: {stderr}")
+        _cleanup_volumes(volumes)
+        return
+
+    # ── Step 3: 交叉编译 6 平台（无网络）──
+    sha256sums = {}
+    artifacts = {}
+
+    for goos, goarch in BUILD_PLATFORMS:
+        suffix = ".exe" if goos == "windows" else ""
+        asset_name = f"presto-template-{name}-{goos}-{goarch}{suffix}"
+        print(f"  编译: {asset_name} ...")
+
+        result = docker_run(
+            image="golang:1.24",
+            cmd=f"cd /src && go build -ldflags='-s -w' -o /out/{asset_name} ./",
+            volumes=[
+                (vol_src, "/src", "ro"),
+                (vol_mod, "/go/pkg/mod", "ro"),
+                (vol_out, "/out", "rw"),
+            ],
+            env_vars={
+                "CGO_ENABLED": "0",
+                "GOFLAGS": "-trimpath",
+                "GOOS": goos,
+                "GOARCH": goarch,
+            },
+            network=False,
+            read_only=True,
+        )
+
+        if result is None or result.returncode != 0:
+            stderr = result.stderr.decode("utf-8", errors="replace")[:500] if result else ""
+            print(f"    ⚠ 编译失败: {stderr}")
+            _cleanup_volumes(volumes)
+            return
+
+        # 从 Docker volume 复制产物到宿主机
+        local_artifact = tmpl_build_dir / asset_name
+        subprocess.run(
+            ["docker", "run", "--rm",
+             "-v", f"{vol_out}:/out:ro",
+             "-v", f"{tmpl_build_dir}:/host-out",
+             "alpine", "sh", "-c", f"cp /out/{asset_name} /host-out/"],
+            capture_output=True, timeout=60,
+        )
+
+        if not local_artifact.exists():
+            print(f"    ⚠ 产物未生成")
+            _cleanup_volumes(volumes)
+            return
+
+        # 检查大小限制
+        artifact_size = local_artifact.stat().st_size
+        if artifact_size > MAX_ARTIFACT_SIZE:
+            print(f"    ⚠ 产物超出大小限制: {artifact_size / 1024 / 1024:.1f} MB > 50 MB")
+            _cleanup_volumes(volumes)
+            return
+
+        sha256 = compute_sha256(local_artifact)
+        sha256sums[asset_name] = sha256
+        artifacts[f"{goos}-{goarch}"] = local_artifact
+        print(f"    完成 ({artifact_size / 1024:.1f} KB, sha256={sha256[:16]}...)")
+
+    # 清理 Docker volumes
+    _cleanup_volumes(volumes)
+
+    if len(artifacts) != len(BUILD_PLATFORMS):
+        print(f"  ⚠ 编译不完整，跳过 {name}")
+        return
+
+    # ── Step 4: 写入 SHA256SUMS ──
+    sha256sums_path = tmpl_build_dir / "SHA256SUMS"
+    with open(sha256sums_path, "w") as f:
+        for asset_key, hash_val in sorted(sha256sums.items()):
+            f.write(f"{hash_val}  {asset_key}\n")
+
+    # ── Step 5: 创建 GitHub Release 并上传 ──
+    release_tag = f"{name}-v{version}"
+    print(f"  创建 Release: {release_tag}")
+
+    # 删除已有 release（幂等）
+    subprocess.run(
+        ["gh", "release", "delete", release_tag, "--yes", "--cleanup-tag",
+         "-R", REGISTRY_REPO],
+        capture_output=True,
+    )
+
+    release_result = subprocess.run(
+        ["gh", "release", "create", release_tag,
+         "--title", f"presto-template-{name} v{version}",
+         "--notes", f"Verified build of {repo}@{ref}",
+         "-R", REGISTRY_REPO],
+        capture_output=True, text=True, timeout=60,
+    )
+    if release_result.returncode != 0:
+        print(f"  ⚠ Release 创建失败: {release_result.stderr[:500]}")
+        return
+
+    upload_files = [str(p) for p in artifacts.values()] + [str(sha256sums_path)]
+    upload_result = subprocess.run(
+        ["gh", "release", "upload", release_tag] + upload_files +
+        ["--clobber", "-R", REGISTRY_REPO],
+        capture_output=True, text=True, timeout=300,
+    )
+    if upload_result.returncode != 0:
+        print(f"  ⚠ 资产上传失败: {upload_result.stderr[:500]}")
+        return
+
+    print(f"  Release 创建完成: {release_tag} ({len(artifacts)} 个平台)")
+
+    # ── Step 6: 提取 manifest/example 并生成 meta.json ──
+    _extract_verified_metadata(name, repo, ref, version, release_tag,
+                               tmpl_build_dir, sha256sums)
+
+    print(f"  模板 {name} 编译和上传全部完成 ✓")
+
+
+def _extract_verified_metadata(name, repo, ref, version, release_tag,
+                               tmpl_build_dir, sha256sums):
+    """从克隆的源码读取 manifest/example，用编译产物生成 output.typ，写入 meta.json。"""
+    source_dir = tmpl_build_dir / "source"
+    out_dir = OUTPUT_DIR / name
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # 直接从源码读取 manifest.json（不需要执行二进制）
+    src_manifest = source_dir / "manifest.json"
+    if src_manifest.exists():
+        print("  读取 manifest.json（从源码）...")
+        shutil.copy2(src_manifest, out_dir / "manifest.json")
+    else:
+        print("  ⚠ 源码中未找到 manifest.json")
+
+    # 直接从源码读取 example.md
+    src_example = source_dir / "example.md"
+    example_data = None
+    if src_example.exists():
+        print("  读取 example.md（从源码）...")
+        shutil.copy2(src_example, out_dir / "example.md")
+        example_data = src_example.read_bytes()
+    else:
+        print("  ⚠ 源码中未找到 example.md")
+
+    # 用编译产物生成 output.typ（需要执行二进制做 Markdown→Typst 转换）
+    if example_data:
+        current_os, current_arch = get_current_platform()
+        suffix = ".exe" if current_os == "windows" else ""
+        binary_name = f"presto-template-{name}-{current_os}-{current_arch}{suffix}"
+        binary_path = tmpl_build_dir / binary_name
+
+        if binary_path.exists():
+            binary_path.chmod(
+                binary_path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH
+            )
+            print("  生成 output.typ ...")
+            result = safe_run([str(binary_path)], input_data=example_data)
+            if result and result.returncode == 0:
+                (out_dir / "output.typ").write_bytes(result.stdout)
+            else:
+                print("    ⚠ output.typ 生成失败")
+        else:
+            print(f"  ⚠ 未找到当前平台二进制 {binary_name}，跳过 output.typ 生成")
+
+    # 获取 README
+    readme = fetch_readme(repo, name)
+    (out_dir / "README.md").write_text(readme, encoding="utf-8")
+
+    # 构建 platforms（URL 指向 template-registry Release）
+    platforms = {}
+    for goos, goarch in BUILD_PLATFORMS:
+        suffix = ".exe" if goos == "windows" else ""
+        asset_name = f"presto-template-{name}-{goos}-{goarch}{suffix}"
+        plat_key = f"{goos}-{goarch}"
+        platforms[plat_key] = {
+            "url": f"https://github.com/{REGISTRY_REPO}/releases/download/{release_tag}/{asset_name}",
+            "sha256": sha256sums.get(asset_name, ""),
+        }
+
+    # 保存 meta.json（标记 verified）
+    meta = {
+        "name": name,
+        "repo": repo,
+        "owner": repo.split("/")[0],
+        "version": version,
+        "tag": ref,
+        "published_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "html_url": f"https://github.com/{repo}",
+        "platforms": platforms,
+        "verified": True,
+    }
+    _save_meta(out_dir / "meta.json", meta)
 
 
 # ─── compile 子命令 ──────────────────────────────────────────────────────
@@ -669,6 +1086,9 @@ def cmd_index(args):
     deploy_dir = OUTPUT_DIR / "deploy"
     templates = []
 
+    # 加载 verified 模板名单（用于交叉校验）
+    verified_names = {e["name"] for e in load_verified_templates()}
+
     # 从 deploy 目录读取
     if deploy_dir.exists():
         for tmpl_dir in sorted(deploy_dir.iterdir()):
@@ -690,7 +1110,12 @@ def cmd_index(args):
 
             # trust 判定
             owner = meta.get("owner", "")
-            trust = "official" if owner == "Presto-io" else "community"
+            if owner == "Presto-io":
+                trust = "official"
+            elif meta.get("verified", False) or tmpl_dir.name in verified_names:
+                trust = "verified"
+            else:
+                trust = "community"
 
             # 预览图路径（相对于 templates 根目录，扫描所有页）
             preview_svgs = sorted(tmpl_dir.glob("preview-*.svg"))
@@ -777,6 +1202,9 @@ def main():
     # extract
     p_extract = subparsers.add_parser("extract", help="下载二进制并提取数据")
 
+    # build
+    p_build = subparsers.add_parser("build", help="从源码编译 verified 模板")
+
     # compile
     p_compile = subparsers.add_parser("compile", help="用 Typst CLI 编译 SVG")
     p_compile.add_argument("--font-path", default="fonts/", help="字体路径")
@@ -789,6 +1217,7 @@ def main():
     commands = {
         "discover": cmd_discover,
         "extract": cmd_extract,
+        "build": cmd_build,
         "compile": cmd_compile,
         "index": cmd_index,
     }
