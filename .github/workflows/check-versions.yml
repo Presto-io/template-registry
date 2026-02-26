@@ -1,0 +1,94 @@
+name: Check Verified Template Versions
+
+on:
+  schedule:
+    - cron: '30 */6 * * *'       # 每 6 小时（与 update-registry 错开）
+  workflow_dispatch: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Check for version updates
+        id: check
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 << 'PYEOF'
+          import json, os, requests
+
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+          }
+
+          with open("verified-templates.json", "r") as f:
+              entries = json.load(f)
+
+          if not entries:
+              print("No verified templates configured")
+              with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                  f.write("has_updates=false\n")
+              exit(0)
+
+          updated = False
+          for entry in entries:
+              repo = entry["repo"]
+              current_ref = entry["ref"]
+              resp = requests.get(
+                  f"https://api.github.com/repos/{repo}/releases/latest",
+                  headers=headers,
+              )
+              if resp.status_code != 200:
+                  print(f"  ⚠ {repo}: 无法获取最新 Release (HTTP {resp.status_code})")
+                  continue
+
+              latest_tag = resp.json().get("tag_name", "")
+              if latest_tag and latest_tag != current_ref:
+                  print(f"  {entry['name']}: {current_ref} → {latest_tag}")
+                  entry["ref"] = latest_tag
+                  updated = True
+              else:
+                  print(f"  {entry['name']}: 已是最新 ({current_ref})")
+
+          if updated:
+              with open("verified-templates.json", "w") as f:
+                  json.dump(entries, f, ensure_ascii=False, indent=2)
+                  f.write("\n")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"has_updates={'true' if updated else 'false'}\n")
+          PYEOF
+
+      - name: Create PR for version updates
+        if: steps.check.outputs.has_updates == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BRANCH="auto/update-verified-templates-$(date +%Y%m%d-%H%M%S)"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add verified-templates.json
+          git commit -m "chore: 更新 verified 模板版本"
+          git push -u origin "$BRANCH"
+          gh pr create \
+            --title "chore: 更新 verified 模板版本" \
+            --body "自动检测到 verified 模板有新版本发布，已更新 \`verified-templates.json\` 中的 ref 字段。
+
+          合并此 PR 后将自动触发 \`build-verified.yml\` 工作流进行编译。" \
+            --base main

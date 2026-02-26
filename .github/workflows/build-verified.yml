@@ -1,22 +1,19 @@
-name: Update Template Registry
+name: Build Verified Templates
 
 on:
-  schedule:
-    - cron: '0 */6 * * *'        # 每 6 小时
-  workflow_dispatch:
-    inputs:
-      force_rebuild:
-        description: '强制重建所有模板'
-        type: boolean
-        default: false
+  push:
+    branches: [main]
+    paths:
+      - 'verified-templates.json'
+  workflow_dispatch: {}
 
 jobs:
-  # ─── Job 1: extract（GitHub-hosted，低权限）────────────────────
-  # 搜索模板仓库、官方模板下载二进制提取、community 模板从 repo 读取
-  extract:
+  # ─── Job 1: build（GitHub-hosted）──────────────────────────────
+  # 克隆源码、Docker 隔离编译、上传 Release、提取元数据
+  build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -29,26 +26,23 @@ jobs:
       - name: Install dependencies
         run: pip install requests
 
-      - name: Discover templates
+      - name: Build verified templates
         env:
-          GITHUB_TOKEN: ${{ github.token }}
-          FORCE_REBUILD: ${{ inputs.force_rebuild && 'true' || 'false' }}
-        run: python scripts/build_registry.py discover
+          GITHUB_TOKEN: ${{ secrets.PRESTO_PAT }}
+          GH_TOKEN: ${{ secrets.PRESTO_PAT }}
+        run: python scripts/build_registry.py build
 
-      - name: Extract template data
-        run: python scripts/build_registry.py extract
-
-      - name: Upload extracted data
+      - name: Upload build output
         uses: actions/upload-artifact@v4
         with:
-          name: extracted-data
+          name: verified-build-output
           path: output/
           retention-days: 1
 
   # ─── Job 2: compile-and-deploy（macOS ARM64 self-hosted）──────
   # SVG 编译（仅 official + verified）、生成索引、提交部署
   compile-and-deploy:
-    needs: extract
+    needs: build
     runs-on: [self-hosted, macOS, ARM64]
     permissions:
       contents: write
@@ -56,10 +50,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download extracted data
+      - name: Download build output
         uses: actions/download-artifact@v4
         with:
-          name: extracted-data
+          name: verified-build-output
           path: output/
 
       - name: Download fonts
@@ -77,7 +71,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add templates/ registry.json
           git diff --cached --quiet && echo "No changes" && exit 0
-          git commit -m "chore: 更新模板注册表"
+          git commit -m "chore: 更新 verified 模板编译产物"
           git push
 
       - name: Deploy to registry-deploy
@@ -95,5 +89,5 @@ jobs:
             echo "No changes to registry"
             exit 0
           fi
-          git commit -m "chore: update template registry"
+          git commit -m "chore: update template registry (verified build)"
           git push
