@@ -20,3 +20,6 @@ Thumbs.db
 
 # Runner deployment (not part of this repo)
 runner/
+
+# Claude Code
+.claude/
