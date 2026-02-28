@@ -788,7 +788,7 @@ def _build_verified_template(entry, tmpl_build_dir, name, repo, ref, version):
     # ── Step 2: 下载依赖（有网络）──
     print("  下载依赖 (go mod download) ...")
     result = docker_run(
-        image="golang:1.24",
+        image="golang:1.25",
         cmd="cd /src && go mod download",
         volumes=[
             (vol_src, "/src", "rw"),
@@ -812,7 +812,7 @@ def _build_verified_template(entry, tmpl_build_dir, name, repo, ref, version):
         print(f"  编译: {asset_name} ...")
 
         result = docker_run(
-            image="golang:1.24",
+            image="golang:1.25",
             cmd=f"cd /src && go build -ldflags='-s -w' -o /out/{asset_name} ./",
             volumes=[
                 (vol_src, "/src", "ro"),

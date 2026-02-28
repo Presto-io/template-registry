@@ -2,7 +2,7 @@ name: Check Verified Template Versions
 
 on:
   schedule:
-    - cron: '30 */6 * * *'       # 每 6 小时（与 update-registry 错开）
+    - cron: '30 8 * * *'          # 每日 UTC 08:30（与 update-registry 错开）
   workflow_dispatch: {}
 
 jobs:
