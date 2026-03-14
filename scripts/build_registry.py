@@ -74,6 +74,9 @@ BUILD_PLATFORMS = [
 ]
 REGISTRY_REPO = "Presto-io/template-registry"
 
+# CDN 基础 URL（二进制镜像，绕过 GitHub 下载）
+CDN_BASE_URL = "https://presto.c-1o.top/templates"
+
 # ─── 辅助函数 ────────────────────────────────────────────────────────────
 
 
@@ -576,11 +579,50 @@ def _extract_official_template(tmpl, out_dir, name, assets, platforms,
     # 保存元数据
     _save_meta(out_dir / "meta.json", _build_meta(tmpl, platforms))
 
+    # 下载所有平台二进制到 deploy 目录（供 CDN 镜像）
+    _download_binaries_for_cdn(name, assets, sha256_map)
+
     # 清理二进制（gongwen 延后到 hero 帧生成之后）
     if name != "gongwen":
         binary_path.unlink(missing_ok=True)
 
     print(f"  完成 ✓")
+
+
+def _download_binaries_for_cdn(name, assets, sha256_map):
+    """下载所有平台二进制到 deploy 目录，供 CDN 镜像分发。"""
+    binaries_dir = OUTPUT_DIR / "deploy" / name / "binaries"
+    binaries_dir.mkdir(parents=True, exist_ok=True)
+
+    for plat in ALL_PLATFORMS:
+        os_name, arch = plat.split("-")
+        suffix = ".exe" if os_name == "windows" else ""
+        expected = f"presto-template-{name}-{os_name}-{arch}{suffix}"
+        for asset in assets:
+            if asset["name"] == expected:
+                print(f"  CDN 镜像: {expected} ...")
+                resp = requests.get(
+                    asset["browser_download_url"],
+                    headers=github_headers(),
+                    stream=True,
+                )
+                if resp.status_code != 200:
+                    print(f"    ⚠ 下载失败: HTTP {resp.status_code}")
+                    break
+                bin_path = binaries_dir / expected
+                with open(bin_path, "wb") as f:
+                    for chunk in resp.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                # 校验 SHA256
+                expected_hash = sha256_map.get(expected, "")
+                if expected_hash:
+                    actual = compute_sha256(bin_path)
+                    if actual != expected_hash:
+                        print(f"    ⚠ SHA256 不匹配，删除: {expected}")
+                        bin_path.unlink(missing_ok=True)
+                    else:
+                        print(f"    SHA256 ✓")
+                break
 
 
 def _extract_community_template(tmpl, out_dir, name, repo, platforms):
@@ -990,6 +1032,17 @@ def _extract_verified_metadata(name, repo, ref, version, release_tag,
     }
     _save_meta(out_dir / "meta.json", meta)
 
+    # 复制编译产物到 deploy 目录（供 CDN 镜像）
+    binaries_dir = OUTPUT_DIR / "deploy" / name / "binaries"
+    binaries_dir.mkdir(parents=True, exist_ok=True)
+    for goos, goarch in BUILD_PLATFORMS:
+        suffix = ".exe" if goos == "windows" else ""
+        asset_name = f"presto-template-{name}-{goos}-{goarch}{suffix}"
+        src = tmpl_build_dir / asset_name
+        if src.exists():
+            shutil.copy2(src, binaries_dir / asset_name)
+            print(f"  CDN 镜像: {asset_name} ✓")
+
 
 # ─── compile 子命令 ──────────────────────────────────────────────────────
 
@@ -1121,8 +1174,18 @@ def cmd_index(args):
             preview_svgs = sorted(tmpl_dir.glob("preview-*.svg"))
             preview_images = [f"{tmpl_dir.name}/{svg.name}" for svg in preview_svgs]
 
+            # 为 official/verified 模板生成 CDN 镜像 URL
+            raw_platforms = meta.get("platforms", {})
+            tmpl_name = manifest.get("name", tmpl_dir.name)
+            if trust in ("official", "verified"):
+                for plat_key, plat_info in raw_platforms.items():
+                    if plat_info.get("url"):
+                        # 从 GitHub URL 提取文件名
+                        filename = plat_info["url"].rsplit("/", 1)[-1]
+                        plat_info["cdn_url"] = f"{CDN_BASE_URL}/{tmpl_name}/binaries/{filename}"
+
             templates.append({
-                "name": manifest.get("name", tmpl_dir.name),
+                "name": tmpl_name,
                 "displayName": manifest.get("displayName", ""),
                 "description": manifest.get("description", ""),
                 "version": manifest.get("version", ""),
@@ -1132,7 +1195,7 @@ def cmd_index(args):
                 "category": manifest.get("category", ""),
                 "keywords": manifest.get("keywords", []),
                 "trust": trust,
-                "platforms": meta.get("platforms", {}),
+                "platforms": raw_platforms,
                 "minPrestoVersion": manifest.get("minPrestoVersion", ""),
                 "requiredFonts": manifest.get("requiredFonts", []),
                 "previewImages": preview_images,
