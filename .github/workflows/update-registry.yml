@@ -3,6 +3,8 @@ name: Update Template Registry
 on:
   schedule:
     - cron: '0 8 * * *'           # 每日 UTC 08:00
+  repository_dispatch:
+    types: [official-release-published]
   workflow_dispatch:
     inputs:
       force_rebuild:
@@ -34,7 +36,7 @@ jobs:
       - name: Discover templates
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          FORCE_REBUILD: ${{ inputs.force_rebuild && 'true' || 'false' }}
+          FORCE_REBUILD: ${{ inputs.force_rebuild && 'true' || github.event.client_payload.force_rebuild || 'false' }}
         run: python scripts/build_registry.py discover
 
       - name: Extract template data
