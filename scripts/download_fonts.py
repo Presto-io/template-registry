@@ -8,10 +8,6 @@ CI 环境中已通过 Dockerfile 或 apt 安装 Noto CJK 字体族。
 
 from pathlib import Path
 
-import hashlib
-
-import requests
-
 FONTS_DIR = Path(__file__).resolve().parent.parent / "fonts"
 
 # 开源字体下载列表
@@ -30,6 +26,9 @@ def main():
     if not OPEN_SOURCE_FONTS:
         print("当前无需额外下载字体（CI 环境已通过 apt 安装 Noto CJK）")
         return
+
+    import hashlib
+    import requests
 
     for filename, url, expected_sha256 in OPEN_SOURCE_FONTS:
         target = FONTS_DIR / filename
