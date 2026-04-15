@@ -62,7 +62,11 @@ jobs:
         run: python3 scripts/download_fonts.py
 
       - name: Compile SVGs
-        run: python3 scripts/build_registry.py compile --font-path fonts/
+        run: |
+          python3 scripts/build_registry.py compile \
+            --font-path fonts/ \
+            --font-path "$HOME/Library/Fonts" \
+            --font-path /Library/Fonts
 
       - name: Generate registry index
         run: python3 scripts/build_registry.py index
@@ -80,9 +84,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PRESTO_PAT }}
         run: |
+          test -f output/deploy/registry.json
+          find output/deploy -mindepth 1 -maxdepth 1 -type d | grep -q .
           git clone https://x-access-token:${GH_TOKEN}@github.com/Presto-io/registry-deploy.git /tmp/deploy
           rm -rf /tmp/deploy/templates
-          cp -r output/deploy /tmp/deploy/templates
+          mkdir -p /tmp/deploy/templates
+          cp -R output/deploy/. /tmp/deploy/templates/
           cd /tmp/deploy
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

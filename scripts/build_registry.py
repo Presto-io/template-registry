@@ -26,6 +26,7 @@ import stat
 import subprocess
 import sys
 import textwrap
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -57,6 +58,7 @@ MAX_TYPST_SIZE = 10 * 1024 * 1024     # 10 MB
 EXEC_TIMEOUT = 30                      # 秒
 COMPILE_TIMEOUT = 120                  # typst 编译超时（秒）
 VALID_TEMPLATE_NAME = re.compile(r'^[a-z0-9]([a-z0-9-]*[a-z0-9])?$')
+FONT_EXTENSIONS = {".otf", ".ttf", ".ttc", ".otc"}
 
 # Verified 模板编译
 VERIFIED_TEMPLATES_JSON = ROOT_DIR / "verified-templates.json"
@@ -101,6 +103,112 @@ def get_current_platform():
     arch_map = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}
     arch = arch_map.get(machine, machine)
     return os_name, arch
+
+
+def sanitize_filename(value):
+    """将任意路径片段转换为稳定的 ASCII 文件名。"""
+    normalized = unicodedata.normalize("NFKD", value)
+    ascii_only = normalized.encode("ascii", "ignore").decode("ascii")
+    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "-", ascii_only).strip("-._")
+    return sanitized or "font"
+
+
+def default_font_sources():
+    """返回当前平台默认的额外字体搜索路径。"""
+    home = Path.home()
+    os_name = platform.system().lower()
+    if os_name == "darwin":
+        return [
+            home / "Library/Fonts",
+            Path("/Library/Fonts"),
+            Path("/System/Library/Fonts"),
+        ]
+    if os_name == "linux":
+        return [
+            home / ".local/share/fonts",
+            home / ".fonts",
+            Path("/usr/local/share/fonts"),
+            Path("/usr/share/fonts"),
+        ]
+    if os_name == "windows":
+        windir = Path(os.environ.get("WINDIR", r"C:\Windows"))
+        return [windir / "Fonts"]
+    return []
+
+
+def parse_font_paths(raw_values):
+    """解析 CLI / 环境变量传入的字体路径列表。"""
+    if raw_values is None:
+        return []
+    if isinstance(raw_values, str):
+        raw_values = [raw_values]
+
+    parsed = []
+    for raw in raw_values:
+        if not raw:
+            continue
+        parts = [part.strip() for part in str(raw).split(os.pathsep)]
+        parsed.extend(part for part in parts if part)
+    return parsed
+
+
+def build_font_bundle(font_sources):
+    """将多个字体来源整理成单一目录，供 Typst 编译时使用。"""
+    bundle_dir = OUTPUT_DIR / "_font_bundle"
+    if bundle_dir.exists():
+        shutil.rmtree(bundle_dir)
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+
+    resolved_sources = []
+    seen_sources = set()
+    env_sources = parse_font_paths(os.environ.get("PRESTO_FONT_PATHS"))
+
+    for raw in [*parse_font_paths(font_sources), *env_sources]:
+        candidate = Path(raw).expanduser()
+        if not candidate.is_absolute():
+            candidate = (ROOT_DIR / candidate).resolve()
+        else:
+            candidate = candidate.resolve()
+        candidate_key = str(candidate)
+        if candidate_key in seen_sources:
+            continue
+        seen_sources.add(candidate_key)
+        resolved_sources.append(candidate)
+
+    for candidate in default_font_sources():
+        candidate = candidate.expanduser().resolve()
+        candidate_key = str(candidate)
+        if candidate_key in seen_sources:
+            continue
+        seen_sources.add(candidate_key)
+        resolved_sources.append(candidate)
+
+    linked_count = 0
+    for source in resolved_sources:
+        if not source.exists():
+            continue
+
+        if source.is_file():
+            files = [source] if source.suffix.lower() in FONT_EXTENSIONS else []
+        else:
+            files = [path for path in source.rglob("*") if path.is_file() and path.suffix.lower() in FONT_EXTENSIONS]
+
+        if not files:
+            continue
+
+        print(f"  字体来源: {source} ({len(files)} files)")
+        source_slug = sanitize_filename(source.name or source.anchor or "fonts")
+        for index, font_file in enumerate(sorted(files), start=1):
+            target_name = f"{source_slug}-{index:04d}-{sanitize_filename(font_file.name)}"
+            target = bundle_dir / target_name
+            try:
+                target.symlink_to(font_file)
+            except OSError:
+                shutil.copy2(font_file, target)
+            linked_count += 1
+
+    print(f"  字体汇总目录: {bundle_dir} ({linked_count} files)")
+    return bundle_dir
 
 
 def find_binary_asset(assets, template_name, target_os, target_arch):
@@ -1056,7 +1164,7 @@ def cmd_compile(args):
     """用 Typst CLI 编译 .typ 文件为 SVG 预览。"""
     print("=== Compile SVGs ===")
 
-    font_path = getattr(args, "font_path", "fonts/")
+    font_bundle_dir = build_font_bundle(getattr(args, "font_path", ["fonts/"]))
 
     # 确认 typst 可用
     try:
@@ -1086,7 +1194,7 @@ def cmd_compile(args):
         compile_env = {"PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin")}
         try:
             result = subprocess.run(
-                ["typst", "compile", "--font-path", font_path, str(typ_file), svg_pattern],
+                ["typst", "compile", "--font-path", str(font_bundle_dir), str(typ_file), svg_pattern],
                 capture_output=True,
                 text=True,
                 timeout=COMPILE_TIMEOUT,
@@ -1109,7 +1217,7 @@ def cmd_compile(args):
             try:
                 result = subprocess.run(
                     [
-                        "typst", "compile", "--font-path", font_path,
+                        "typst", "compile", "--font-path", str(font_bundle_dir),
                         str(hero_typ), str(hero_svg),
                     ],
                     capture_output=True,
@@ -1275,7 +1383,7 @@ def main():
 
     # compile
     p_compile = subparsers.add_parser("compile", help="用 Typst CLI 编译 SVG")
-    p_compile.add_argument("--font-path", default="fonts/", help="字体路径")
+    p_compile.add_argument("--font-path", action="append", default=None, help="字体路径，可重复传入多次")
 
     # index
     p_index = subparsers.add_parser("index", help="生成 registry.json v2 索引")
