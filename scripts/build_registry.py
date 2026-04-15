@@ -29,8 +29,6 @@ import textwrap
 from datetime import datetime, timezone
 from pathlib import Path
 
-import requests
-
 # ─── 常量 ───────────────────────────────────────────────────────────────
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -87,6 +85,13 @@ def github_headers():
     if token:
         headers["Authorization"] = f"Bearer {token}"
     return headers
+
+
+def requests_get(*args, **kwargs):
+    """惰性导入 requests，避免纯本地步骤依赖该包。"""
+    import requests
+
+    return requests.get(*args, **kwargs)
 
 
 def get_current_platform():
@@ -165,7 +170,7 @@ def download_sha256sums(assets):
     """从 release assets 下载并解析 SHA256SUMS 文件。"""
     for asset in assets:
         if asset["name"] == "SHA256SUMS":
-            resp = requests.get(asset["browser_download_url"], headers=github_headers())
+            resp = requests_get(asset["browser_download_url"], headers=github_headers())
             if resp.status_code == 200:
                 return parse_sha256sums(resp.text)
     return {}
@@ -296,7 +301,7 @@ def fetch_readme(repo, template_name):
 
     for path in paths_to_try:
         url = f"{GITHUB_API}/repos/{repo}/contents/{path}"
-        resp = requests.get(url, headers=github_headers())
+        resp = requests_get(url, headers=github_headers())
         if resp.status_code == 200:
             data = resp.json()
             content = base64.b64decode(data.get("content", "")).decode("utf-8")
@@ -304,7 +309,7 @@ def fetch_readme(repo, template_name):
 
     # 回退到仓库根 README
     url = f"{GITHUB_API}/repos/{repo}/readme"
-    resp = requests.get(url, headers=github_headers())
+    resp = requests_get(url, headers=github_headers())
     if resp.status_code == 200:
         data = resp.json()
         content = base64.b64decode(data.get("content", "")).decode("utf-8")
@@ -379,7 +384,7 @@ def cmd_discover(args):
     # 1. 官方模板仓库（monorepo）
     print(f"\n检查官方仓库: {OFFICIAL_REPO}")
     release_url = f"{GITHUB_API}/repos/{OFFICIAL_REPO}/releases/latest"
-    resp = requests.get(release_url, headers=github_headers())
+    resp = requests_get(release_url, headers=github_headers())
     if resp.status_code == 200:
         process_release(OFFICIAL_REPO, "Presto-io", resp.json())
     else:
@@ -389,7 +394,7 @@ def cmd_discover(args):
     print(f"\n搜索 GitHub topic: {TOPIC}")
     search_url = f"{GITHUB_API}/search/repositories"
     params = {"q": f"topic:{TOPIC}", "sort": "updated", "per_page": 100}
-    resp = requests.get(search_url, headers=github_headers(), params=params)
+    resp = requests_get(search_url, headers=github_headers(), params=params)
 
     if resp.status_code == 200:
         repos = resp.json().get("items", [])
@@ -405,7 +410,7 @@ def cmd_discover(args):
 
             print(f"  检查: {full_name}")
             release_url = f"{GITHUB_API}/repos/{full_name}/releases/latest"
-            rel_resp = requests.get(release_url, headers=github_headers())
+            rel_resp = requests_get(release_url, headers=github_headers())
             if rel_resp.status_code != 200:
                 print(f"    ⚠ 无 Release，跳过")
                 continue
@@ -504,7 +509,7 @@ def _extract_official_template(tmpl, out_dir, name, assets, platforms,
     # 下载二进制
     print(f"  下载: {asset['name']}")
     download_url = asset["browser_download_url"]
-    resp = requests.get(download_url, headers=github_headers(), stream=True)
+    resp = requests_get(download_url, headers=github_headers(), stream=True)
     if resp.status_code != 200:
         print(f"  ⚠ 下载失败: HTTP {resp.status_code}")
         return
@@ -601,7 +606,7 @@ def _download_binaries_for_cdn(name, assets, sha256_map):
         for asset in assets:
             if asset["name"] == expected:
                 print(f"  CDN 镜像: {expected} ...")
-                resp = requests.get(
+                resp = requests_get(
                     asset["browser_download_url"],
                     headers=github_headers(),
                     stream=True,
@@ -640,7 +645,7 @@ def _extract_community_template(tmpl, out_dir, name, repo, platforms):
     manifest_content = None
     for path in manifest_paths:
         url = f"{GITHUB_API}/repos/{repo}/contents/{path}"
-        resp = requests.get(url, headers=github_headers())
+        resp = requests_get(url, headers=github_headers())
         if resp.status_code == 200:
             data = resp.json()
             manifest_content = base64.b64decode(data.get("content", "")).decode("utf-8")
