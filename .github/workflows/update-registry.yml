@@ -92,8 +92,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PRESTO_PAT }}
         run: |
-          test -f output/deploy/registry.json
-          find output/deploy -mindepth 1 -maxdepth 1 -type d | grep -q .
+          test -f output/deploy/registry.json || { echo "No registry.json, skipping deploy"; exit 0; }
+          has_dirs=$(find output/deploy -mindepth 1 -maxdepth 1 -type d | head -1)
+          if [ -z "$has_dirs" ]; then
+            echo "No template directories to deploy, skipping"
+            exit 0
+          fi
           git clone https://x-access-token:${GH_TOKEN}@github.com/Presto-io/registry-deploy.git /tmp/deploy
           rm -rf /tmp/deploy/templates
           mkdir -p /tmp/deploy/templates
