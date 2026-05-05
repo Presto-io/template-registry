@@ -241,14 +241,6 @@ e5f6a7b8...  presto-template-gongwen-darwin-amd64
 | `community` | 灰色标签 | 仅收录，未审核 | `var(--color-muted)` |
 | `unrecorded` | 警告标识 | 用户手动 URL 安装（不在 registry 中） | `var(--color-warning)` |
 
-### Windows code signing
-
-- `official` Windows `.exe` assets must have a valid Authenticode signature before normal publication.
-- `verified` Windows `.exe` assets must meet the same signature validity standard before entering `verified`.
-- `community` assets remain community and are not signed with the Presto-io publisher identity by default.
-- A Windows asset is not considered validly signed unless Authenticode status is valid, the certificate chain is valid, the signature is timestamped, and the publisher identity matches the expected public signing policy.
-- `SHA256SUMS`, registry `sha256`, and CDN mirrors must use the signed bytes, not pre-signing bytes.
-
 ### 6.3 Registry 目录结构
 
 每种扩展类型的 registry 仓库内部结构：
