@@ -1362,7 +1362,7 @@ def cmd_index(args):
                 "name": tmpl_name,
                 "displayName": manifest.get("displayName", ""),
                 "description": manifest.get("description", ""),
-                "version": manifest.get("version", ""),
+                "version": meta.get("version") or manifest.get("version", ""),
                 "author": manifest.get("author", ""),
                 "repo": meta.get("repo", ""),
                 "license": manifest.get("license", ""),
