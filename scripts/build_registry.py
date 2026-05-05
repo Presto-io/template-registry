@@ -376,10 +376,13 @@ def _cleanup_volumes(volume_names):
 def safe_run(cmd, input_data=None, timeout=EXEC_TIMEOUT):
     """安全地运行子进程，带超时、环境清洗和网络隔离。"""
     env = {"PATH": "/usr/local/bin:/usr/bin:/bin"}
+    base_cmd = list(cmd)
+    sandboxed = False
 
     # Linux 上使用 unshare --net 隔离网络（阻止不可信二进制外传数据）
     if sys.platform == "linux":
-        cmd = ["unshare", "--net", "--map-root-user", "--"] + list(cmd)
+        cmd = ["unshare", "--net", "--map-root-user", "--"] + base_cmd
+        sandboxed = True
 
     try:
         result = subprocess.run(
@@ -389,6 +392,15 @@ def safe_run(cmd, input_data=None, timeout=EXEC_TIMEOUT):
             timeout=timeout,
             env=env,
         )
+        if sandboxed and result.returncode != 0 and _is_unshare_unavailable(result.stderr):
+            print("  ⚠ unshare 网络隔离不可用，降级为直接执行官方模板二进制")
+            result = subprocess.run(
+                base_cmd,
+                input=input_data,
+                capture_output=True,
+                timeout=timeout,
+                env=env,
+            )
         return result
     except subprocess.TimeoutExpired:
         print(f"  ⚠ 命令超时 ({timeout}s): {' '.join(str(c) for c in cmd)}")
@@ -396,6 +408,19 @@ def safe_run(cmd, input_data=None, timeout=EXEC_TIMEOUT):
     except Exception as e:
         print(f"  ⚠ 命令执行失败: {e}")
         return None
+
+
+def _is_unshare_unavailable(stderr):
+    """判断失败是否来自 runner 禁用 user/network namespace，而非模板本身。"""
+    text = stderr.decode("utf-8", errors="replace") if isinstance(stderr, bytes) else str(stderr)
+    return (
+        "unshare:" in text
+        and (
+            "Operation not permitted" in text
+            or "uid_map" in text
+            or "not permitted" in text.lower()
+        )
+    )
 
 
 def fetch_readme(repo, template_name):
@@ -556,6 +581,7 @@ def cmd_extract(args):
 
     # SHA256SUMS 缓存（按 repo+tag 缓存，避免同一 release 重复下载）
     sha256_cache = {}
+    failures = []
 
     for tmpl in discovered:
         name = tmpl["name"]
@@ -592,17 +618,24 @@ def cmd_extract(args):
         # 3. 区分官方和 community 模板
         if owner == "Presto-io":
             # 官方模板：下载二进制提取 manifest/example/output.typ（用于 SVG 预览）
-            _extract_official_template(tmpl, out_dir, name, assets, platforms,
-                                       sha256_map, current_os, current_arch)
+            ok = _extract_official_template(tmpl, out_dir, name, assets, platforms,
+                                            sha256_map, current_os, current_arch)
+            if not ok:
+                failures.append(name)
         else:
             # community 模板：直接从 repo 读取 manifest.json + README
             _extract_community_template(tmpl, out_dir, name, repo, platforms)
 
     # ─── Hero 分帧（仅 gongwen）───────────────────────────────────
-    generate_hero_source()
+    if not generate_hero_source():
+        failures.append("gongwen hero frames")
     # 清理 gongwen 二进制
     gongwen_bin = OUTPUT_DIR / "gongwen" / "presto-template-gongwen"
     gongwen_bin.unlink(missing_ok=True)
+
+    if failures:
+        print(f"\n!! 模板提取失败: {', '.join(failures)}")
+        sys.exit(1)
 
 
 def _extract_official_template(tmpl, out_dir, name, assets, platforms,
@@ -612,7 +645,7 @@ def _extract_official_template(tmpl, out_dir, name, assets, platforms,
     if not asset:
         print(f"  ⚠ 未找到 {current_os}-{current_arch} 的二进制")
         _save_meta(out_dir / "meta.json", _build_meta(tmpl, platforms))
-        return
+        return False
 
     # 下载二进制
     print(f"  下载: {asset['name']}")
@@ -620,7 +653,7 @@ def _extract_official_template(tmpl, out_dir, name, assets, platforms,
     resp = requests_get(download_url, headers=github_headers(), stream=True)
     if resp.status_code != 200:
         print(f"  ⚠ 下载失败: HTTP {resp.status_code}")
-        return
+        return False
 
     binary_path = out_dir / f"presto-template-{name}"
     with open(binary_path, "wb") as f:
@@ -636,7 +669,7 @@ def _extract_official_template(tmpl, out_dir, name, assets, platforms,
     if verification is False:
         print(f"  !! SHA256 验证失败，跳过该模板")
         binary_path.unlink(missing_ok=True)
-        return
+        return False
     elif verification is None:
         print(f"  ⚠ 无 SHA256 记录，无法验证")
     else:
@@ -649,13 +682,13 @@ def _extract_official_template(tmpl, out_dir, name, assets, platforms,
         manifest_data = result.stdout
         if len(manifest_data) > MAX_MANIFEST_SIZE:
             print(f"  ⚠ manifest 超出大小限制 ({len(manifest_data)} bytes)")
-            return
+            return False
         (out_dir / "manifest.json").write_bytes(manifest_data)
     else:
         print(f"  ⚠ --manifest 失败")
         if result:
             print(f"    stderr: {result.stderr.decode('utf-8', errors='replace')[:500]}")
-        return
+        return False
 
     # 运行 --example
     print("  提取 example.md ...")
@@ -664,11 +697,11 @@ def _extract_official_template(tmpl, out_dir, name, assets, platforms,
         example_data = result.stdout
         if len(example_data) > MAX_EXAMPLE_SIZE:
             print(f"  ⚠ example 超出大小限制 ({len(example_data)} bytes)")
-            return
+            return False
         (out_dir / "example.md").write_bytes(example_data)
     else:
         print(f"  ⚠ --example 失败")
-        return
+        return False
 
     # 管道转换：cat example.md | ./binary → output.typ
     print("  生成 output.typ ...")
@@ -677,13 +710,13 @@ def _extract_official_template(tmpl, out_dir, name, assets, platforms,
         typst_data = result.stdout
         if len(typst_data) > MAX_TYPST_SIZE:
             print(f"  ⚠ typst 输出超出大小限制 ({len(typst_data)} bytes)")
-            return
+            return False
         (out_dir / "output.typ").write_bytes(typst_data)
     else:
         print(f"  ⚠ 管道转换失败")
         if result:
             print(f"    stderr: {result.stderr.decode('utf-8', errors='replace')[:500]}")
-        return
+        return False
 
     # README
     readme_content = tmpl.get("readme", f"# {name}\n")
@@ -700,6 +733,7 @@ def _extract_official_template(tmpl, out_dir, name, assets, platforms,
         binary_path.unlink(missing_ok=True)
 
     print(f"  完成 ✓")
+    return True
 
 
 def _download_binaries_for_cdn(name, assets, sha256_map):
@@ -786,10 +820,11 @@ def generate_hero_source():
     binary_path = gongwen_dir / "presto-template-gongwen"
 
     if not example_file.exists() or not binary_path.exists():
-        return
+        return True
 
     print("\n=== 生成 Hero 分帧 SVG 源码 ===")
     example_text = example_file.read_text(encoding="utf-8")
+    ok = True
 
     for i, frame_md in enumerate(generate_hero_frames(example_text)):
         print(f"  生成 hero-frame-{i} ...")
@@ -801,6 +836,11 @@ def generate_hero_source():
             (gongwen_dir / f"hero-frame-{i}.typ").write_bytes(result.stdout)
         else:
             print(f"    ⚠ hero-frame-{i} 生成失败")
+            if result:
+                print(f"    stderr: {result.stderr.decode('utf-8', errors='replace')[:300]}")
+            ok = False
+
+    return ok
 
 
 def generate_hero_frames(example_md):
@@ -1163,6 +1203,7 @@ def _extract_verified_metadata(name, repo, ref, version, release_tag,
 def cmd_compile(args):
     """用 Typst CLI 编译 .typ 文件为 SVG 预览。"""
     print("=== Compile SVGs ===")
+    failures = []
 
     font_bundle_dir = build_font_bundle(getattr(args, "font_path", ["fonts/"]))
 
@@ -1202,23 +1243,30 @@ def cmd_compile(args):
             )
         except subprocess.TimeoutExpired:
             print(f"  ⚠ 编译超时 ({COMPILE_TIMEOUT}s): {name}")
+            failures.append(name)
             continue
         if result.returncode != 0:
             print(f"  ⚠ 编译失败: {result.stderr[:500]}")
+            failures.append(name)
         else:
             # 统计生成了多少页
             svgs = list(target_dir.glob("preview-*.svg"))
             print(f"  生成 {len(svgs)} 页预览 SVG")
+            if not svgs:
+                failures.append(name)
 
         # 编译 Hero 分帧 SVG（仅 gongwen）
         for hero_typ in sorted(tmpl_dir.glob("hero-frame-*.typ")):
             frame_name = hero_typ.stem  # e.g. hero-frame-0
             hero_svg = target_dir / f"{frame_name}.svg"
+            temp_pattern = target_dir / f".{frame_name}-{{n}}.svg"
+            for stale_svg in target_dir.glob(f".{frame_name}-*.svg"):
+                stale_svg.unlink(missing_ok=True)
             try:
                 result = subprocess.run(
                     [
                         "typst", "compile", "--font-path", str(font_bundle_dir),
-                        str(hero_typ), str(hero_svg),
+                        str(hero_typ), str(temp_pattern),
                     ],
                     capture_output=True,
                     text=True,
@@ -1227,10 +1275,20 @@ def cmd_compile(args):
                 )
             except subprocess.TimeoutExpired:
                 print(f"  ⚠ {frame_name} 编译超时 ({COMPILE_TIMEOUT}s)")
+                failures.append(frame_name)
                 continue
             if result.returncode != 0:
                 print(f"  ⚠ {frame_name} 编译失败: {result.stderr[:300]}")
+                failures.append(frame_name)
             else:
+                first_page = target_dir / f".{frame_name}-1.svg"
+                if not first_page.exists():
+                    print(f"  ⚠ {frame_name} 编译后未生成第一页 SVG")
+                    failures.append(frame_name)
+                    continue
+                shutil.move(str(first_page), hero_svg)
+                for extra_svg in target_dir.glob(f".{frame_name}-*.svg"):
+                    extra_svg.unlink(missing_ok=True)
                 print(f"  {frame_name}.svg ✓")
 
         # 复制其他文件到 deploy 目录
@@ -1240,6 +1298,9 @@ def cmd_compile(args):
                 shutil.copy2(src, target_dir / fname)
 
     print("\n编译完成")
+    if failures:
+        print(f"!! SVG 编译失败: {', '.join(failures)}")
+        sys.exit(1)
 
 
 # ─── index 子命令 ────────────────────────────────────────────────────────
