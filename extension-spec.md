@@ -336,21 +336,12 @@ plugin-registry CI   → 生成文件 → push 到 registry-deploy/plugins/
   1. GET github.com/repos/{owner}/{repo}/releases/latest
   2. 匹配当前平台的二进制资产（{os}_{arch}）
   3. 下载二进制（限 100MB）
-  4. 验证 SHA256（从 SHA256SUMS，且 SHA256SUMS 必须来自签名后的字节）
-  5. Windows `.exe` 且 trust 为 `official`/`verified` 时，先执行 Authenticode gate：
-     - signature status 必须为 valid
-     - certificate chain 必须 valid
-     - timestamp 必须存在
-     - publisher 必须匹配 expected public signing policy
-     - 任一失败必须 fail closed，不能运行二进制
-  6. `community` Windows `.exe` 不能使用 Presto-io publisher identity 作为信任背书
-  7. 运行 ./binary --manifest → 提取 manifest.json
-  8. 写入 ~/.presto/templates/{name}/manifest.json
-  9. 写入 ~/.presto/templates/{name}/presto-template-{name}
-  10. 设置执行权限 0755
+  4. 验证 SHA256（从 SHA256SUMS）
+  5. 运行 ./binary --manifest → 提取 manifest.json
+  6. 写入 ~/.presto/templates/{name}/manifest.json
+  7. 写入 ~/.presto/templates/{name}/presto-template-{name}
+  8. 设置执行权限 0755
 ```
-
-Phase 29 的 registry/Presto 实现必须让 Windows `official`/`verified` 安装 gate 能消费这些签名元数据：`signature.status`、`signature.provider`、`signature.publisher`、`signature.timestamped`、`signature.verifiedAt`。
 
 ### 8.2 本地目录结构
 
