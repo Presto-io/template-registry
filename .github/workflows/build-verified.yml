@@ -86,7 +86,8 @@ jobs:
         run: |
           test -f output/deploy/registry.json
           find output/deploy -mindepth 1 -maxdepth 1 -type d | grep -q .
-          git clone https://x-access-token:${GH_TOKEN}@github.com/Presto-io/registry-deploy.git /tmp/deploy
+          rm -rf /tmp/deploy
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/Presto-io/registry-deploy.git" /tmp/deploy
           rm -rf /tmp/deploy/templates
           mkdir -p /tmp/deploy/templates
           cp -R output/deploy/. /tmp/deploy/templates/

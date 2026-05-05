@@ -98,7 +98,8 @@ jobs:
             echo "No template directories to deploy, skipping"
             exit 0
           fi
-          git clone https://x-access-token:${GH_TOKEN}@github.com/Presto-io/registry-deploy.git /tmp/deploy
+          rm -rf /tmp/deploy
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/Presto-io/registry-deploy.git" /tmp/deploy
           rm -rf /tmp/deploy/templates
           mkdir -p /tmp/deploy/templates
           cp -R output/deploy/. /tmp/deploy/templates/
