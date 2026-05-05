@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "updatedAt": "2026-05-05T21:24:21Z",
+  "updatedAt": "2026-05-05T22:24:03Z",
   "templates": [
     {
       "name": "gongwen",
@@ -21,33 +21,33 @@
       "trust": "official",
       "platforms": {
         "darwin-arm64": {
-          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/v1.1.1/presto-template-gongwen-darwin-arm64",
-          "sha256": "48677c06a88a83deb00aee106ad0a77856924b110bc533117d997c9664fdbf39",
+          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/v1.2.0/presto-template-gongwen-darwin-arm64",
+          "sha256": "b119edadf02cfd73b9c6d5d7bb590775e31cc8d64762909ea86700a3f5520d96",
           "cdn_url": "https://presto.c-1o.top/templates/gongwen/binaries/presto-template-gongwen-darwin-arm64"
         },
         "darwin-amd64": {
-          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/v1.1.1/presto-template-gongwen-darwin-amd64",
-          "sha256": "88fc11f71d93be7dab5009aa6fa485d37f336478051199ff7a5523f5429b449b",
+          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/v1.2.0/presto-template-gongwen-darwin-amd64",
+          "sha256": "8eae4dee4782e1887b84bc8b0bafea377ff5fcc2ebe41462765c20a217d38dc3",
           "cdn_url": "https://presto.c-1o.top/templates/gongwen/binaries/presto-template-gongwen-darwin-amd64"
         },
         "linux-arm64": {
-          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/v1.1.1/presto-template-gongwen-linux-arm64",
-          "sha256": "29b427dac8692ea6c2468167382c0eb1fc617855ce30a3504d4972ac5528278e",
+          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/v1.2.0/presto-template-gongwen-linux-arm64",
+          "sha256": "f95010216e109e5db73bb850cdc1de336c62a0a5a01c3ec6466d631570a9be96",
           "cdn_url": "https://presto.c-1o.top/templates/gongwen/binaries/presto-template-gongwen-linux-arm64"
         },
         "linux-amd64": {
-          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/v1.1.1/presto-template-gongwen-linux-amd64",
-          "sha256": "b7670970ab143066b4a1758fbd815d6f44eb772b6f758b973094e95936d7c63e",
+          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/v1.2.0/presto-template-gongwen-linux-amd64",
+          "sha256": "abcafe57ee79fc7b8ea862c37990ea64d4b68c9d7dd0dc13fc817ae0ecb812f4",
           "cdn_url": "https://presto.c-1o.top/templates/gongwen/binaries/presto-template-gongwen-linux-amd64"
         },
         "windows-arm64": {
-          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/v1.1.1/presto-template-gongwen-windows-arm64.exe",
-          "sha256": "5ad8a378ae2421e0c032dc8872c08099677184e1bd9b6bfe18f81ce3239c9d25",
+          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/v1.2.0/presto-template-gongwen-windows-arm64.exe",
+          "sha256": "00a840c3ea04561bcaabc4a6da2e46660b3c33a749b72acc9be8f8a5067770d1",
           "cdn_url": "https://presto.c-1o.top/templates/gongwen/binaries/presto-template-gongwen-windows-arm64.exe"
         },
         "windows-amd64": {
-          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/v1.1.1/presto-template-gongwen-windows-amd64.exe",
-          "sha256": "161d58c62fe657e5354c75dc88d3763e3cf12fbcd31c5806475e54a652acc58e",
+          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/v1.2.0/presto-template-gongwen-windows-amd64.exe",
+          "sha256": "8241f56bf7798ea02c0a8eae0b4cf45ed9f9e7fc84a35f2506ce9c47ea771cb2",
           "cdn_url": "https://presto.c-1o.top/templates/gongwen/binaries/presto-template-gongwen-windows-amd64.exe"
         }
       },
@@ -104,33 +104,33 @@
       "trust": "official",
       "platforms": {
         "darwin-arm64": {
-          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/v1.1.1/presto-template-jiaoan-shicao-darwin-arm64",
-          "sha256": "f53e4194973994fad1281b7acbb7d54d7f7ce8ff3beddbd50df9b76e3269ca19",
+          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/v1.2.0/presto-template-jiaoan-shicao-darwin-arm64",
+          "sha256": "4217f484b50081c4ceb361143bbb24e24bd3a31db7ad48df9dbf93e2cae1f105",
           "cdn_url": "https://presto.c-1o.top/templates/jiaoan-shicao/binaries/presto-template-jiaoan-shicao-darwin-arm64"
         },
         "darwin-amd64": {
-          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/v1.1.1/presto-template-jiaoan-shicao-darwin-amd64",
-          "sha256": "061f6ef5085b9745dd6cc545abe64a051e276af40ecd8751d46c1fcb080101c6",
+          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/v1.2.0/presto-template-jiaoan-shicao-darwin-amd64",
+          "sha256": "b8418ad6ae5df15caf3c66811d305caa852393cb7c893072e1b0ae0a79ccb730",
           "cdn_url": "https://presto.c-1o.top/templates/jiaoan-shicao/binaries/presto-template-jiaoan-shicao-darwin-amd64"
         },
         "linux-arm64": {
-          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/v1.1.1/presto-template-jiaoan-shicao-linux-arm64",
-          "sha256": "c72e3abf708b8d51c309976421086f4147e2e65857d4d74ad2e12e71f43a892e",
+          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/v1.2.0/presto-template-jiaoan-shicao-linux-arm64",
+          "sha256": "d532020088aad83c9470241479402e4d29bb3d6e37c9cee91295fbfc77c4a062",
           "cdn_url": "https://presto.c-1o.top/templates/jiaoan-shicao/binaries/presto-template-jiaoan-shicao-linux-arm64"
         },
         "linux-amd64": {
-          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/v1.1.1/presto-template-jiaoan-shicao-linux-amd64",
-          "sha256": "48f57fc34a71ebbd0687650bc9e2b1929c8b3c6c9fd60c42e43883301e92ce22",
+          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/v1.2.0/presto-template-jiaoan-shicao-linux-amd64",
+          "sha256": "c96483926d614e4de1705c6821593b13970714aac3be389857c1fa56363d9ccb",
           "cdn_url": "https://presto.c-1o.top/templates/jiaoan-shicao/binaries/presto-template-jiaoan-shicao-linux-amd64"
         },
         "windows-arm64": {
-          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/v1.1.1/presto-template-jiaoan-shicao-windows-arm64.exe",
-          "sha256": "facde913ead1fde50aa5db2c108128c008fb228fb7fb3207d19cc4a0c0d1b2c9",
+          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/v1.2.0/presto-template-jiaoan-shicao-windows-arm64.exe",
+          "sha256": "e4efab643cceb2a2aa2cb032e63a5fb380ae3290ac1ad5cc03e63ae6f3e0e0f4",
           "cdn_url": "https://presto.c-1o.top/templates/jiaoan-shicao/binaries/presto-template-jiaoan-shicao-windows-arm64.exe"
         },
         "windows-amd64": {
-          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/v1.1.1/presto-template-jiaoan-shicao-windows-amd64.exe",
-          "sha256": "76ab0cc122abc25bbdad861a62e2abfd71b8cdca289cf4fd8339fae162bc8847",
+          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/v1.2.0/presto-template-jiaoan-shicao-windows-amd64.exe",
+          "sha256": "2bde9f08cbc826392d46397774cb0cee7f632ae3f37a43fc6575a6f173201a8a",
           "cdn_url": "https://presto.c-1o.top/templates/jiaoan-shicao/binaries/presto-template-jiaoan-shicao-windows-amd64.exe"
         }
       },
