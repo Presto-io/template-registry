@@ -1,0 +1,11 @@
+{
+  "name": "gongwen-beta",
+  "displayName": "类公文模板 Canary",
+  "description": "用于验证官方模板懒发布链路的临时 canary 模板",
+  "version": "0.0.1-beta.2",
+  "author": "Presto-io",
+  "license": "MIT",
+  "category": "测试",
+  "keywords": ["canary", "release-test", "gongwen-beta"],
+  "minPrestoVersion": "0.1.0"
+}
