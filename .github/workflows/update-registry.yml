@@ -37,6 +37,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           FORCE_REBUILD: ${{ inputs.force_rebuild && 'true' || github.event.client_payload.force_rebuild || 'false' }}
+          OFFICIAL_TEMPLATE: ${{ github.event.client_payload.template || '' }}
+          OFFICIAL_TAG: ${{ github.event.client_payload.tag || '' }}
+          OFFICIAL_VERSION: ${{ github.event.client_payload.version || '' }}
         run: python scripts/build_registry.py discover
 
       - name: Extract template data

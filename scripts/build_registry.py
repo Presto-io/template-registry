@@ -12,6 +12,9 @@ build_registry.py — Presto 模板注册表构建脚本 (v2)
 环境变量：
   GITHUB_TOKEN       GitHub API token（避免 rate limit）
   FORCE_REBUILD      设为 "true" 强制重建所有模板
+  OFFICIAL_TEMPLATE  官方模板懒刷新时限定模板名
+  OFFICIAL_TAG       官方模板懒刷新时限定 release tag
+  OFFICIAL_VERSION   官方模板懒刷新时限定模板版本
 """
 
 import argparse
@@ -482,12 +485,26 @@ def cmd_discover(args):
         existing_versions[t["name"]] = t.get("version", "")
 
     force = os.environ.get("FORCE_REBUILD", "").lower() == "true" or getattr(args, "force", False)
+    official_template = os.environ.get("OFFICIAL_TEMPLATE", "").strip()
+    official_tag = os.environ.get("OFFICIAL_TAG", "").strip()
+    official_version = os.environ.get("OFFICIAL_VERSION", "").strip().removeprefix("v")
     discovered = []
+
+    if official_template and not VALID_TEMPLATE_NAME.match(official_template):
+        print(f"  ⚠ 无效官方模板名，忽略懒刷新过滤: {official_template!r}")
+        official_template = ""
+
+    def release_version_for_template(repo_full_name, tag, template_name):
+        """从 release tag 推导模板版本；官方模板支持 {template}-v{semver}。"""
+        if repo_full_name == OFFICIAL_REPO:
+            prefix = f"{template_name}-v"
+            if tag.startswith(prefix):
+                return tag[len(prefix):]
+        return tag.lstrip("v")
 
     def process_release(repo_full_name, owner, release):
         """处理一个仓库的 release，提取所有模板（支持 monorepo）。"""
         tag = release.get("tag_name", "")
-        version = tag.lstrip("v")
         published_at = release.get("published_at", "")
         assets = release.get("assets", [])
 
@@ -497,6 +514,15 @@ def cmd_discover(args):
             return
 
         for name in template_names:
+            if repo_full_name == OFFICIAL_REPO and official_template and name != official_template:
+                print(f"    {name}: 非本次懒刷新目标，跳过")
+                continue
+
+            version = release_version_for_template(repo_full_name, tag, name)
+            if repo_full_name == OFFICIAL_REPO and official_version and name == official_template and version != official_version:
+                print(f"    {name}: release 版本 {version} 与 payload 版本 {official_version} 不一致，跳过")
+                continue
+
             if not force and existing_versions.get(name) == version:
                 print(f"    {name}: 版本未变 ({version})，跳过")
                 continue
@@ -516,12 +542,29 @@ def cmd_discover(args):
 
     # 1. 官方模板仓库（monorepo）
     print(f"\n检查官方仓库: {OFFICIAL_REPO}")
-    release_url = f"{GITHUB_API}/repos/{OFFICIAL_REPO}/releases/latest"
-    resp = requests_get(release_url, headers=github_headers())
-    if resp.status_code == 200:
-        process_release(OFFICIAL_REPO, "Presto-io", resp.json())
+    if official_tag:
+        release_url = f"{GITHUB_API}/repos/{OFFICIAL_REPO}/releases/tags/{official_tag}"
+        resp = requests_get(release_url, headers=github_headers())
+        if resp.status_code == 200:
+            process_release(OFFICIAL_REPO, "Presto-io", resp.json())
+        else:
+            print(f"  ⚠ 无法获取官方模板 Release {official_tag}: HTTP {resp.status_code}")
     else:
-        print(f"  ⚠ 无法获取 Release 信息: HTTP {resp.status_code}")
+        release_url = f"{GITHUB_API}/repos/{OFFICIAL_REPO}/releases"
+        resp = requests_get(release_url, headers=github_headers(), params={"per_page": 100})
+        if resp.status_code == 200:
+            seen_official_templates = set()
+            for release in resp.json():
+                names = extract_template_names(release.get("assets", []))
+                if not names:
+                    continue
+                new_names = [name for name in names if name not in seen_official_templates]
+                if not new_names:
+                    continue
+                process_release(OFFICIAL_REPO, "Presto-io", release)
+                seen_official_templates.update(new_names)
+        else:
+            print(f"  ⚠ 无法获取 Release 信息: HTTP {resp.status_code}")
 
     # 2. 社区模板（通过 topic 搜索）
     print(f"\n搜索 GitHub topic: {TOPIC}")
