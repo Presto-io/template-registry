@@ -88,9 +88,13 @@ jobs:
           find output/deploy -mindepth 1 -maxdepth 1 -type d | grep -q .
           rm -rf /tmp/deploy
           git clone "https://x-access-token:${GH_TOKEN}@github.com/Presto-io/registry-deploy.git" /tmp/deploy
-          rm -rf /tmp/deploy/templates
           mkdir -p /tmp/deploy/templates
-          cp -R output/deploy/. /tmp/deploy/templates/
+          cp output/deploy/registry.json /tmp/deploy/templates/registry.json
+          find output/deploy -mindepth 1 -maxdepth 1 -type d | while read -r template_dir; do
+            name="$(basename "${template_dir}")"
+            rm -rf "/tmp/deploy/templates/${name}"
+            cp -R "${template_dir}" /tmp/deploy/templates/
+          done
           cd /tmp/deploy
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
