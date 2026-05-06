@@ -86,59 +86,6 @@
       ]
     },
     {
-      "name": "gongwen-beta",
-      "displayName": "类公文模板 Canary",
-      "description": "用于验证官方模板懒发布链路的临时 canary 模板",
-      "version": "0.0.1-beta.3",
-      "author": "Presto-io",
-      "repo": "Presto-io/presto-official-templates",
-      "license": "MIT",
-      "category": "测试",
-      "keywords": [
-        "canary",
-        "release-test",
-        "gongwen-beta"
-      ],
-      "trust": "official",
-      "platforms": {
-        "darwin-arm64": {
-          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/gongwen-beta-v0.0.1-beta.3/presto-template-gongwen-beta-darwin-arm64",
-          "sha256": "5d6093fb85948c60f175d47691dc65bf45d8e7bd6686d9225d34cd33c00d9e82",
-          "cdn_url": "https://presto.c-1o.top/templates/gongwen-beta/binaries/presto-template-gongwen-beta-darwin-arm64"
-        },
-        "darwin-amd64": {
-          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/gongwen-beta-v0.0.1-beta.3/presto-template-gongwen-beta-darwin-amd64",
-          "sha256": "9e0f46f9ae461be4769db2ee39c2bb18adb95d62a1e6337691afd1c18935c812",
-          "cdn_url": "https://presto.c-1o.top/templates/gongwen-beta/binaries/presto-template-gongwen-beta-darwin-amd64"
-        },
-        "linux-arm64": {
-          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/gongwen-beta-v0.0.1-beta.3/presto-template-gongwen-beta-linux-arm64",
-          "sha256": "be72d775fe82c79863a6ef8a086bc6b2c9a505509ee4cd39430915cfe73ca9a6",
-          "cdn_url": "https://presto.c-1o.top/templates/gongwen-beta/binaries/presto-template-gongwen-beta-linux-arm64"
-        },
-        "linux-amd64": {
-          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/gongwen-beta-v0.0.1-beta.3/presto-template-gongwen-beta-linux-amd64",
-          "sha256": "44ad3971202136573a49de866448ff69399a9eb77c6fee71480a348c421b419b",
-          "cdn_url": "https://presto.c-1o.top/templates/gongwen-beta/binaries/presto-template-gongwen-beta-linux-amd64"
-        },
-        "windows-arm64": {
-          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/gongwen-beta-v0.0.1-beta.3/presto-template-gongwen-beta-windows-arm64.exe",
-          "sha256": "bba920365c23caf62a85b0e6a61c31bf14dd2e3c7282df75a2ede186043e7b3d",
-          "cdn_url": "https://presto.c-1o.top/templates/gongwen-beta/binaries/presto-template-gongwen-beta-windows-arm64.exe"
-        },
-        "windows-amd64": {
-          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/gongwen-beta-v0.0.1-beta.3/presto-template-gongwen-beta-windows-amd64.exe",
-          "sha256": "af752496b9626c6b7d8d58fccb45fe604ee17b297c054b020e507917e71bc357",
-          "cdn_url": "https://presto.c-1o.top/templates/gongwen-beta/binaries/presto-template-gongwen-beta-windows-amd64.exe"
-        }
-      },
-      "minPrestoVersion": "0.1.0",
-      "requiredFonts": [],
-      "previewImages": [
-        "gongwen-beta/preview-1.svg"
-      ]
-    },
-    {
       "name": "jiaoan-shicao",
       "displayName": "实操教案模板",
       "description": "将 Markdown 格式的实操教案转换为标准表格排版",
