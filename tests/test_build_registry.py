@@ -1,5 +1,6 @@
 import importlib.util
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 
@@ -36,6 +37,36 @@ class ReleaseFilterTest(unittest.TestCase):
             build_registry.release_skip_reason(release, allow_prerelease=True),
             "draft",
         )
+
+
+class RegistryBaseUrlTest(unittest.TestCase):
+    def test_default_registry_base_url(self):
+        with patch.dict("os.environ", {}, clear=True):
+            self.assertEqual(
+                build_registry.registry_base_url(),
+                "https://presto.c-1o.top/templates",
+            )
+
+    def test_registry_base_path_selects_prerelease_channel(self):
+        with patch.dict("os.environ", {"REGISTRY_BASE_PATH": "templates-prerelease"}, clear=True):
+            self.assertEqual(
+                build_registry.registry_base_url(),
+                "https://presto.c-1o.top/templates-prerelease",
+            )
+
+    def test_explicit_registry_base_url_wins(self):
+        with patch.dict(
+            "os.environ",
+            {
+                "REGISTRY_BASE_PATH": "templates-prerelease",
+                "REGISTRY_BASE_URL": "https://example.test/custom/",
+            },
+            clear=True,
+        ):
+            self.assertEqual(
+                build_registry.registry_base_url(),
+                "https://example.test/custom",
+            )
 
 
 if __name__ == "__main__":

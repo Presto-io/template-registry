@@ -17,6 +17,8 @@ build_registry.py — Presto 模板注册表构建脚本 (v2)
   OFFICIAL_VERSION   官方模板懒刷新时限定模板版本
   ALLOW_PRERELEASE_TEMPLATES
                      设为 "true" 时允许收录 prerelease（生产 registry 不应设置）
+  REGISTRY_BASE_PATH 发布路径前缀，默认 templates；预发布 registry 使用 templates-prerelease
+  REGISTRY_BASE_URL  完整 registry 资源 URL 前缀，优先级高于 REGISTRY_BASE_PATH
 """
 
 import argparse
@@ -82,8 +84,8 @@ BUILD_PLATFORMS = [
 ]
 REGISTRY_REPO = "Presto-io/template-registry"
 
-# CDN 基础 URL（二进制镜像，绕过 GitHub 下载）
-CDN_BASE_URL = "https://presto.c-1o.top/templates"
+# CDN 基础地址（二进制镜像，绕过 GitHub 下载）
+DEFAULT_CDN_ORIGIN = "https://presto.c-1o.top"
 
 # ─── 辅助函数 ────────────────────────────────────────────────────────────
 
@@ -333,6 +335,18 @@ def release_skip_reason(release, allow_prerelease=False):
     if release.get("prerelease") and not allow_prerelease:
         return "prerelease"
     return ""
+
+
+def registry_base_url():
+    """返回当前 registry channel 的公开资源 URL 前缀。"""
+    explicit_url = os.environ.get("REGISTRY_BASE_URL", "").strip()
+    if explicit_url:
+        return explicit_url.rstrip("/")
+
+    base_path = os.environ.get("REGISTRY_BASE_PATH", "templates").strip().strip("/")
+    if not base_path:
+        base_path = "templates"
+    return f"{DEFAULT_CDN_ORIGIN}/{base_path}"
 
 
 def compute_sha256(file_path):
@@ -1408,6 +1422,7 @@ def cmd_index(args):
     print("=== Generate registry index (v2) ===")
 
     deploy_dir = OUTPUT_DIR / "deploy"
+    cdn_base_url = registry_base_url()
     templates = []
 
     # 加载 verified 模板名单（用于交叉校验）
@@ -1454,7 +1469,7 @@ def cmd_index(args):
                     if plat_info.get("url"):
                         # 从 GitHub URL 提取文件名
                         filename = plat_info["url"].rsplit("/", 1)[-1]
-                        plat_info["cdn_url"] = f"{CDN_BASE_URL}/{tmpl_name}/binaries/{filename}"
+                        plat_info["cdn_url"] = f"{cdn_base_url}/{tmpl_name}/binaries/{filename}"
 
             templates.append({
                 "name": tmpl_name,
@@ -1467,7 +1482,7 @@ def cmd_index(args):
                 "category": manifest.get("category", ""),
                 "keywords": manifest.get("keywords", []),
                 "trust": trust,
-                "manifest_url": f"{CDN_BASE_URL}/{tmpl_name}/manifest.json",
+                "manifest_url": f"{cdn_base_url}/{tmpl_name}/manifest.json",
                 "manifest_sha256": manifest_sha256,
                 "platforms": raw_platforms,
                 "minPrestoVersion": manifest.get("minPrestoVersion", ""),

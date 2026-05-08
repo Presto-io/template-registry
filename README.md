@@ -19,12 +19,15 @@ GitHub 模板仓库（presto-template topic）
         ▼
   CI: index    ──→ 汇总生成 registry.json
         │
-        ├──→ 提交到本仓库 templates/ + registry.json
+        ├──→ 生产 channel：提交到本仓库 templates/ + registry.json
         └──→ 推送到 registry-deploy → Cloudflare Pages
                     │
                     ▼
            registry.presto.app
 ```
+
+预发布 channel（beta/rc 等）只推送到 `registry-deploy/templates-prerelease/`，
+不会覆盖本仓库的生产 `templates/` 和根目录 `registry.json`。
 
 ## 目录结构
 
@@ -56,6 +59,7 @@ template-registry/
 
 - **定时**：每 6 小时自动运行
 - **手动**：支持 `force_rebuild` 参数强制重建所有模板
+- **官方模板发布**：稳定版进入生产 registry；预发布版进入 `templates-prerelease`
 
 ## 本地开发
 

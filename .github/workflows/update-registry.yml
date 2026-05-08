@@ -40,6 +40,7 @@ jobs:
           OFFICIAL_TEMPLATE: ${{ github.event.client_payload.template || '' }}
           OFFICIAL_TAG: ${{ github.event.client_payload.tag || '' }}
           OFFICIAL_VERSION: ${{ github.event.client_payload.version || '' }}
+          ALLOW_PRERELEASE_TEMPLATES: ${{ github.event.client_payload.allow_prerelease || 'false' }}
         run: python scripts/build_registry.py discover
 
       - name: Extract template data
@@ -80,10 +81,19 @@ jobs:
             --font-path /Library/Fonts
 
       - name: Generate registry index
+        env:
+          REGISTRY_BASE_PATH: ${{ github.event.client_payload.channel == 'prerelease' && 'templates-prerelease' || 'templates' }}
         run: python3 scripts/build_registry.py index
 
       - name: Commit registry updates
+        env:
+          REGISTRY_CHANNEL: ${{ github.event.client_payload.channel || 'production' }}
         run: |
+          if [ "${REGISTRY_CHANNEL}" != "production" ]; then
+            echo "Skipping template-registry commit for ${REGISTRY_CHANNEL} channel"
+            exit 0
+          fi
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add templates/ registry.json
@@ -94,6 +104,7 @@ jobs:
       - name: Deploy to registry-deploy
         env:
           GH_TOKEN: ${{ secrets.PRESTO_PAT }}
+          REGISTRY_CHANNEL: ${{ github.event.client_payload.channel || 'production' }}
         run: |
           test -f output/deploy/registry.json || { echo "No registry.json, skipping deploy"; exit 0; }
           has_dirs=$(find output/deploy -mindepth 1 -maxdepth 1 -type d | head -1)
@@ -101,26 +112,87 @@ jobs:
             echo "No template directories to deploy, skipping"
             exit 0
           fi
+
+          case "${REGISTRY_CHANNEL}" in
+            production)
+              target_dir="templates"
+              ;;
+            prerelease)
+              target_dir="templates-prerelease"
+              ;;
+            *)
+              echo "Unsupported registry channel: ${REGISTRY_CHANNEL}" >&2
+              exit 1
+              ;;
+          esac
+
           rm -rf /tmp/deploy
           git_auth_config=(
             -c credential.helper=
             -c 'credential.https://github.com.helper=!f() { echo username=x-access-token; echo password=$GH_TOKEN; }; f'
           )
           git "${git_auth_config[@]}" clone https://github.com/Presto-io/registry-deploy.git /tmp/deploy
-          mkdir -p /tmp/deploy/templates
-          cp output/deploy/registry.json /tmp/deploy/templates/registry.json
+          mkdir -p "/tmp/deploy/${target_dir}"
+          registry_source="output/deploy/registry.json"
+          if [ "${REGISTRY_CHANNEL}" != "production" ] && [ -f "/tmp/deploy/${target_dir}/registry.json" ]; then
+            python3 - "/tmp/deploy/${target_dir}/registry.json" "${registry_source}" /tmp/merged-registry.json output/deploy <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          old_path, new_path, out_path, deploy_dir = sys.argv[1:]
+          updated = {
+              path.name
+              for path in Path(deploy_dir).iterdir()
+              if path.is_dir()
+          }
+
+          with open(old_path, "r", encoding="utf-8") as f:
+              old_registry = json.load(f)
+          with open(new_path, "r", encoding="utf-8") as f:
+              new_registry = json.load(f)
+
+          old_by_name = {
+              template.get("name"): template
+              for template in old_registry.get("templates", [])
+              if template.get("name")
+          }
+          merged = []
+          seen = set()
+
+          for template in new_registry.get("templates", []):
+              name = template.get("name")
+              if not name:
+                  continue
+              if name not in updated and name in old_by_name:
+                  template = old_by_name[name]
+              merged.append(template)
+              seen.add(name)
+
+          for name, template in old_by_name.items():
+              if name not in seen:
+                  merged.append(template)
+
+          new_registry["templates"] = sorted(merged, key=lambda item: item.get("name", ""))
+          with open(out_path, "w", encoding="utf-8") as f:
+              json.dump(new_registry, f, ensure_ascii=False, indent=2)
+              f.write("\n")
+          PY
+            registry_source="/tmp/merged-registry.json"
+          fi
+          cp "${registry_source}" "/tmp/deploy/${target_dir}/registry.json"
           find output/deploy -mindepth 1 -maxdepth 1 -type d | while read -r template_dir; do
             name="$(basename "${template_dir}")"
-            rm -rf "/tmp/deploy/templates/${name}"
-            cp -R "${template_dir}" /tmp/deploy/templates/
+            rm -rf "/tmp/deploy/${target_dir}/${name}"
+            cp -R "${template_dir}" "/tmp/deploy/${target_dir}/"
           done
           cd /tmp/deploy
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add templates/
+          git add "${target_dir}/"
           if git diff --cached --quiet; then
             echo "No changes to registry"
             exit 0
           fi
-          git commit -m "chore: update template registry"
+          git commit -m "chore: update ${REGISTRY_CHANNEL} template registry"
           git "${git_auth_config[@]}" push
