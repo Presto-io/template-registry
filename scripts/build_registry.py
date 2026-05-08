@@ -1405,6 +1405,7 @@ def cmd_index(args):
 
             with open(manifest_file, "r", encoding="utf-8") as f:
                 manifest = json.load(f)
+            manifest_sha256 = compute_sha256(manifest_file)
 
             # 从 meta.json 读取额外信息
             meta_file = OUTPUT_DIR / tmpl_dir.name / "meta.json"
@@ -1447,9 +1448,13 @@ def cmd_index(args):
                 "category": manifest.get("category", ""),
                 "keywords": manifest.get("keywords", []),
                 "trust": trust,
+                "manifest_url": f"{CDN_BASE_URL}/{tmpl_name}/manifest.json",
+                "manifest_sha256": manifest_sha256,
                 "platforms": raw_platforms,
                 "minPrestoVersion": manifest.get("minPrestoVersion", ""),
                 "requiredFonts": manifest.get("requiredFonts", []),
+                "frontmatterSchema": manifest.get("frontmatterSchema", {}),
+                "runtimes": manifest.get("runtimes", []),
                 "previewImages": preview_images,
             })
 

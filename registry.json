@@ -19,6 +19,8 @@
         "GB/T 9704"
       ],
       "trust": "official",
+      "manifest_url": "https://presto.c-1o.top/templates/gongwen/manifest.json",
+      "manifest_sha256": "aa8e7a2e154e2ff4776fcb0a648a0ae7293423bf2b95c8cbb571ccaecf53fa3a",
       "platforms": {
         "darwin-arm64": {
           "url": "https://github.com/Presto-io/presto-official-templates/releases/download/v1.2.1/presto-template-gongwen-darwin-arm64",
@@ -79,6 +81,25 @@
           "url": "https://www.foundertype.com/index.php/FontInfo/index/id/135"
         }
       ],
+      "frontmatterSchema": {
+        "title": {
+          "type": "string",
+          "default": "请输入文字"
+        },
+        "author": {
+          "type": "string",
+          "default": "请输入文字"
+        },
+        "date": {
+          "type": "string",
+          "format": "YYYY-MM-DD"
+        },
+        "signature": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "runtimes": [],
       "previewImages": [
         "gongwen/preview-1.svg",
         "gongwen/preview-2.svg",
@@ -102,6 +123,8 @@
         "教育"
       ],
       "trust": "official",
+      "manifest_url": "https://presto.c-1o.top/templates/jiaoan-shicao/manifest.json",
+      "manifest_sha256": "de4457b200234c990916ca4fd29360ca48268e67febc7016c797079517d4402e",
       "platforms": {
         "darwin-arm64": {
           "url": "https://github.com/Presto-io/presto-official-templates/releases/download/v1.2.1/presto-template-jiaoan-shicao-darwin-arm64",
@@ -162,6 +185,8 @@
           "url": "https://www.foundertype.com/index.php/FontInfo/index/id/135"
         }
       ],
+      "frontmatterSchema": {},
+      "runtimes": [],
       "previewImages": [
         "jiaoan-shicao/preview-1.svg",
         "jiaoan-shicao/preview-2.svg"
