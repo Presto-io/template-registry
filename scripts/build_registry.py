@@ -58,8 +58,10 @@ ALL_PLATFORMS = [
 MAX_MANIFEST_SIZE = 1 * 1024 * 1024   # 1 MB
 MAX_EXAMPLE_SIZE = 1 * 1024 * 1024    # 1 MB
 MAX_TYPST_SIZE = 10 * 1024 * 1024     # 10 MB
+MAX_BINARY_SIZE = 100 * 1024 * 1024    # 100 MB
 EXEC_TIMEOUT = 30                      # 秒
 COMPILE_TIMEOUT = 120                  # typst 编译超时（秒）
+HTTP_TIMEOUT = 30                      # 秒
 VALID_TEMPLATE_NAME = re.compile(r'^[a-z0-9]([a-z0-9-]*[a-z0-9])?$')
 FONT_EXTENSIONS = {".otf", ".ttf", ".ttc", ".otc"}
 
@@ -70,6 +72,7 @@ BUILD_TIMEOUT = 300                    # 5 分钟
 MAX_ARTIFACT_SIZE = 50 * 1024 * 1024   # 50 MB
 DOCKER_MEMORY = "2g"
 DOCKER_CPUS = "2"
+GO_BUILD_IMAGE = "golang:1.26.3"
 BUILD_PLATFORMS = [
     ("darwin", "arm64"), ("darwin", "amd64"),
     ("linux", "arm64"), ("linux", "amd64"),
@@ -96,6 +99,7 @@ def requests_get(*args, **kwargs):
     """惰性导入 requests，避免纯本地步骤依赖该包。"""
     import requests
 
+    kwargs.setdefault("timeout", HTTP_TIMEOUT)
     return requests.get(*args, **kwargs)
 
 
@@ -327,6 +331,22 @@ def compute_sha256(file_path):
         for chunk in iter(lambda: f.read(8192), b""):
             sha256.update(chunk)
     return sha256.hexdigest()
+
+
+def write_stream_limited(resp, file_path, max_bytes=MAX_BINARY_SIZE):
+    """写入流式响应并限制总字节数，避免异常 release asset 撑满磁盘。"""
+    total = 0
+    with open(file_path, "wb") as f:
+        for chunk in resp.iter_content(chunk_size=8192):
+            if not chunk:
+                continue
+            total += len(chunk)
+            if total > max_bytes:
+                f.close()
+                file_path.unlink(missing_ok=True)
+                raise ValueError(f"download exceeds {max_bytes} bytes")
+            f.write(chunk)
+    return total
 
 
 def docker_run(image, cmd, volumes=None, env_vars=None, network=True,
@@ -684,6 +704,11 @@ def cmd_extract(args):
 def _extract_official_template(tmpl, out_dir, name, assets, platforms,
                                sha256_map, current_os, current_arch):
     """官方模板：下载二进制提取 manifest/example/output.typ。"""
+    missing_hashes = [plat for plat, info in sorted(platforms.items()) if not info.get("sha256")]
+    if missing_hashes:
+        print(f"  !! 官方模板平台缺少 SHA256，跳过: {', '.join(missing_hashes)}")
+        return False
+
     asset = find_binary_asset(assets, name, current_os, current_arch)
     if not asset:
         print(f"  ⚠ 未找到 {current_os}-{current_arch} 的二进制")
@@ -699,9 +724,11 @@ def _extract_official_template(tmpl, out_dir, name, assets, platforms,
         return False
 
     binary_path = out_dir / f"presto-template-{name}"
-    with open(binary_path, "wb") as f:
-        for chunk in resp.iter_content(chunk_size=8192):
-            f.write(chunk)
+    try:
+        write_stream_limited(resp, binary_path)
+    except ValueError as e:
+        print(f"  ⚠ 下载超出大小限制: {e}")
+        return False
 
     binary_path.chmod(binary_path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
     print(f"  二进制大小: {binary_path.stat().st_size / 1024:.1f} KB")
@@ -714,7 +741,9 @@ def _extract_official_template(tmpl, out_dir, name, assets, platforms,
         binary_path.unlink(missing_ok=True)
         return False
     elif verification is None:
-        print(f"  ⚠ 无 SHA256 记录，无法验证")
+        print(f"  !! 无 SHA256 记录，跳过该官方模板")
+        binary_path.unlink(missing_ok=True)
+        return False
     else:
         print(f"  SHA256 验证通过")
 
@@ -800,9 +829,11 @@ def _download_binaries_for_cdn(name, assets, sha256_map):
                     print(f"    ⚠ 下载失败: HTTP {resp.status_code}")
                     break
                 bin_path = binaries_dir / expected
-                with open(bin_path, "wb") as f:
-                    for chunk in resp.iter_content(chunk_size=8192):
-                        f.write(chunk)
+                try:
+                    write_stream_limited(resp, bin_path)
+                except ValueError as e:
+                    print(f"    ⚠ 下载超出大小限制，删除: {expected} ({e})")
+                    break
                 # 校验 SHA256
                 expected_hash = sha256_map.get(expected, "")
                 if expected_hash:
@@ -812,6 +843,9 @@ def _download_binaries_for_cdn(name, assets, sha256_map):
                         bin_path.unlink(missing_ok=True)
                     else:
                         print(f"    SHA256 ✓")
+                else:
+                    print(f"    ⚠ 无 SHA256 记录，删除: {expected}")
+                    bin_path.unlink(missing_ok=True)
                 break
 
 
@@ -1026,7 +1060,7 @@ def _build_verified_template(entry, tmpl_build_dir, name, repo, ref, version):
     # ── Step 2: 下载依赖（有网络）──
     print("  下载依赖 (go mod download) ...")
     result = docker_run(
-        image="golang:1.25",
+        image=GO_BUILD_IMAGE,
         cmd="cd /src && go mod download",
         volumes=[
             (vol_src, "/src", "rw"),
@@ -1050,7 +1084,7 @@ def _build_verified_template(entry, tmpl_build_dir, name, repo, ref, version):
         print(f"  编译: {asset_name} ...")
 
         result = docker_run(
-            image="golang:1.25",
+            image=GO_BUILD_IMAGE,
             cmd=f"cd /src && go build -ldflags='-s -w' -o /out/{asset_name} ./",
             volumes=[
                 (vol_src, "/src", "ro"),
@@ -1117,12 +1151,13 @@ def _build_verified_template(entry, tmpl_build_dir, name, repo, ref, version):
     release_tag = f"{name}-v{version}"
     print(f"  创建 Release: {release_tag}")
 
-    # 删除已有 release（幂等）
-    subprocess.run(
-        ["gh", "release", "delete", release_tag, "--yes", "--cleanup-tag",
-         "-R", REGISTRY_REPO],
-        capture_output=True,
+    existing_release = subprocess.run(
+        ["gh", "release", "view", release_tag, "-R", REGISTRY_REPO],
+        capture_output=True, text=True, timeout=60,
     )
+    if existing_release.returncode == 0:
+        print(f"  !! Release {release_tag} 已存在，拒绝覆盖已发布产物")
+        return
 
     release_result = subprocess.run(
         ["gh", "release", "create", release_tag,
@@ -1138,7 +1173,7 @@ def _build_verified_template(entry, tmpl_build_dir, name, repo, ref, version):
     upload_files = [str(p) for p in artifacts.values()] + [str(sha256sums_path)]
     upload_result = subprocess.run(
         ["gh", "release", "upload", release_tag] + upload_files +
-        ["--clobber", "-R", REGISTRY_REPO],
+        ["-R", REGISTRY_REPO],
         capture_output=True, text=True, timeout=300,
     )
     if upload_result.returncode != 0:

@@ -9,6 +9,8 @@ CI 环境中已通过 Dockerfile 或 apt 安装 Noto CJK 字体族。
 from pathlib import Path
 
 FONTS_DIR = Path(__file__).resolve().parent.parent / "fonts"
+HTTP_TIMEOUT = 30
+MAX_FONT_SIZE = 100 * 1024 * 1024
 
 # 开源字体下载列表
 # 格式: (文件名, 下载 URL, SHA256 hash)
@@ -37,16 +39,33 @@ def main():
             continue
 
         print(f"下载: {filename}")
-        resp = requests.get(url, stream=True)
-        if resp.status_code != 200:
-            print(f"  ⚠ 下载失败: HTTP {resp.status_code}")
-            continue
+        with requests.get(url, stream=True, timeout=HTTP_TIMEOUT) as resp:
+            if resp.status_code != 200:
+                print(f"  ⚠ 下载失败: HTTP {resp.status_code}")
+                continue
+            content_length = resp.headers.get("content-length")
+            if content_length and int(content_length) > MAX_FONT_SIZE:
+                print(f"  ⚠ 文件过大，跳过: {content_length} bytes")
+                continue
 
-        sha256 = hashlib.sha256()
-        with open(target, "wb") as f:
-            for chunk in resp.iter_content(chunk_size=8192):
-                f.write(chunk)
-                sha256.update(chunk)
+            sha256 = hashlib.sha256()
+            total = 0
+            too_large = False
+            with open(target, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=8192):
+                    if not chunk:
+                        continue
+                    total += len(chunk)
+                    if total > MAX_FONT_SIZE:
+                        print(f"  ⚠ 文件超过 {MAX_FONT_SIZE} bytes，删除")
+                        too_large = True
+                        break
+                    f.write(chunk)
+                    sha256.update(chunk)
+
+        if too_large:
+            target.unlink(missing_ok=True)
+            continue
 
         actual_hash = sha256.hexdigest()
         if expected_sha256 and actual_hash != expected_sha256:

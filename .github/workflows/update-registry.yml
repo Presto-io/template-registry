@@ -102,7 +102,11 @@ jobs:
             exit 0
           fi
           rm -rf /tmp/deploy
-          git clone "https://x-access-token:${GH_TOKEN}@github.com/Presto-io/registry-deploy.git" /tmp/deploy
+          git_auth_config=(
+            -c credential.helper=
+            -c 'credential.https://github.com.helper=!f() { echo username=x-access-token; echo password=$GH_TOKEN; }; f'
+          )
+          git "${git_auth_config[@]}" clone https://github.com/Presto-io/registry-deploy.git /tmp/deploy
           mkdir -p /tmp/deploy/templates
           cp output/deploy/registry.json /tmp/deploy/templates/registry.json
           find output/deploy -mindepth 1 -maxdepth 1 -type d | while read -r template_dir; do
@@ -119,4 +123,4 @@ jobs:
             exit 0
           fi
           git commit -m "chore: update template registry"
-          git push
+          git "${git_auth_config[@]}" push
