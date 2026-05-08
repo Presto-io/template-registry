@@ -15,6 +15,8 @@ build_registry.py — Presto 模板注册表构建脚本 (v2)
   OFFICIAL_TEMPLATE  官方模板懒刷新时限定模板名
   OFFICIAL_TAG       官方模板懒刷新时限定 release tag
   OFFICIAL_VERSION   官方模板懒刷新时限定模板版本
+  ALLOW_PRERELEASE_TEMPLATES
+                     设为 "true" 时允许收录 prerelease（生产 registry 不应设置）
 """
 
 import argparse
@@ -324,6 +326,15 @@ def load_verified_templates():
         return json.load(f)
 
 
+def release_skip_reason(release, allow_prerelease=False):
+    """返回 release 应跳过的原因；空字符串表示可收录。"""
+    if release.get("draft"):
+        return "draft"
+    if release.get("prerelease") and not allow_prerelease:
+        return "prerelease"
+    return ""
+
+
 def compute_sha256(file_path):
     """计算文件 SHA256 哈希值。"""
     sha256 = hashlib.sha256()
@@ -508,7 +519,11 @@ def cmd_discover(args):
     official_template = os.environ.get("OFFICIAL_TEMPLATE", "").strip()
     official_tag = os.environ.get("OFFICIAL_TAG", "").strip()
     official_version = os.environ.get("OFFICIAL_VERSION", "").strip().removeprefix("v")
+    allow_prerelease = os.environ.get("ALLOW_PRERELEASE_TEMPLATES", "").lower() == "true"
     discovered = []
+
+    if allow_prerelease:
+        print("  ⚠ ALLOW_PRERELEASE_TEMPLATES=true：允许收录 prerelease 模板")
 
     if official_template and not VALID_TEMPLATE_NAME.match(official_template):
         print(f"  ⚠ 无效官方模板名，忽略懒刷新过滤: {official_template!r}")
@@ -527,6 +542,10 @@ def cmd_discover(args):
         tag = release.get("tag_name", "")
         published_at = release.get("published_at", "")
         assets = release.get("assets", [])
+        skip_reason = release_skip_reason(release, allow_prerelease=allow_prerelease)
+        if skip_reason:
+            print(f"    跳过 {skip_reason} release: {tag or '<unknown>'}")
+            return
 
         template_names = extract_template_names(assets)
         if not template_names:
