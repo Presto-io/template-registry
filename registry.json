@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "updatedAt": "2026-05-11T05:05:43Z",
+  "updatedAt": "2026-05-11T05:13:12Z",
   "templates": [
     {
       "name": "gongwen",
@@ -110,7 +110,7 @@
       "name": "jiaoan-jihua",
       "displayName": "授课进度计划表模板",
       "description": "将课程元数据、学习任务、学习环节和教学内容转换为授课进度计划表 Typst 源码。",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "author": "Presto",
       "repo": "Presto-io/presto-official-templates",
       "license": "MIT",
@@ -123,36 +123,36 @@
       ],
       "trust": "official",
       "manifest_url": "https://presto.c-1o.top/templates/jiaoan-jihua/manifest.json",
-      "manifest_sha256": "27c312bcc9cb038a60f682aecd32dcb32b99726edf275e301c9c7f5d19e63307",
+      "manifest_sha256": "819e1378b1b8de87cf054eb9ec177b4bad9473d3f43bee875836f5563ec4d419",
       "platforms": {
         "darwin-arm64": {
-          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/jiaoan-jihua-v1.0.0/presto-template-jiaoan-jihua-darwin-arm64",
-          "sha256": "d19e6267d8123027686e6b4df5271c11c94efc75e31b852360d50e953ef1ea62",
+          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/jiaoan-jihua-v1.0.1/presto-template-jiaoan-jihua-darwin-arm64",
+          "sha256": "5d311385151ddc9cbbcbcd985e705ff4fa7a91bbd34c5cddd41a439862c19067",
           "cdn_url": "https://presto.c-1o.top/templates/jiaoan-jihua/binaries/presto-template-jiaoan-jihua-darwin-arm64"
         },
         "darwin-amd64": {
-          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/jiaoan-jihua-v1.0.0/presto-template-jiaoan-jihua-darwin-amd64",
-          "sha256": "7b3cd789517676775440f4e36fe544a300f085edc767031a35f083798c06beb6",
+          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/jiaoan-jihua-v1.0.1/presto-template-jiaoan-jihua-darwin-amd64",
+          "sha256": "59ada0ecde0e94f75c6a71c5472ea4cd59b0e974751d263cdbbff30ca1a72f9a",
           "cdn_url": "https://presto.c-1o.top/templates/jiaoan-jihua/binaries/presto-template-jiaoan-jihua-darwin-amd64"
         },
         "linux-arm64": {
-          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/jiaoan-jihua-v1.0.0/presto-template-jiaoan-jihua-linux-arm64",
-          "sha256": "ae87c3e97bedd70f3c60fea728bb17878bcf154490b057e7dd718a855ab37619",
+          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/jiaoan-jihua-v1.0.1/presto-template-jiaoan-jihua-linux-arm64",
+          "sha256": "cd7ee20bc2dc60fa7308e38059f91f9daf869f6d82b7d8e1fa58e881fad01d6b",
           "cdn_url": "https://presto.c-1o.top/templates/jiaoan-jihua/binaries/presto-template-jiaoan-jihua-linux-arm64"
         },
         "linux-amd64": {
-          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/jiaoan-jihua-v1.0.0/presto-template-jiaoan-jihua-linux-amd64",
-          "sha256": "893728889543c65c404131945b4cdff0895811f88f705c5d0d7ec245206a921b",
+          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/jiaoan-jihua-v1.0.1/presto-template-jiaoan-jihua-linux-amd64",
+          "sha256": "ad5ce2c48b0fcbc42e7fe277ff5fd0d0a52744abfe0520601b09a7c488e630f4",
           "cdn_url": "https://presto.c-1o.top/templates/jiaoan-jihua/binaries/presto-template-jiaoan-jihua-linux-amd64"
         },
         "windows-arm64": {
-          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/jiaoan-jihua-v1.0.0/presto-template-jiaoan-jihua-windows-arm64.exe",
-          "sha256": "cb8ca035527b115bbbf6544ccb07c64cfef6c5a6fbba3dc6e9005032b2dd264c",
+          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/jiaoan-jihua-v1.0.1/presto-template-jiaoan-jihua-windows-arm64.exe",
+          "sha256": "e5d94b8bcf5ba1b7692d84606903b2089db19751d42771ec0918547213da6da7",
           "cdn_url": "https://presto.c-1o.top/templates/jiaoan-jihua/binaries/presto-template-jiaoan-jihua-windows-arm64.exe"
         },
         "windows-amd64": {
-          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/jiaoan-jihua-v1.0.0/presto-template-jiaoan-jihua-windows-amd64.exe",
-          "sha256": "84c7077e20b893da4ece5f23e588ad43bddf410fd5c508190f4eec0d67b0d385",
+          "url": "https://github.com/Presto-io/presto-official-templates/releases/download/jiaoan-jihua-v1.0.1/presto-template-jiaoan-jihua-windows-amd64.exe",
+          "sha256": "2d01011c29196a104aceadd6ffd3e533bcc0e45cb12b4b6599b918ce6f9ab8c0",
           "cdn_url": "https://presto.c-1o.top/templates/jiaoan-jihua/binaries/presto-template-jiaoan-jihua-windows-amd64.exe"
         }
       },
@@ -167,8 +167,7 @@
       "frontmatterSchema": {},
       "runtimes": [],
       "previewImages": [
-        "jiaoan-jihua/preview-1.svg",
-        "jiaoan-jihua/preview-2.svg"
+        "jiaoan-jihua/preview-1.svg"
       ]
     },
     {

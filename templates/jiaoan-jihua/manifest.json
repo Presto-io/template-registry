@@ -2,7 +2,7 @@
   "name": "jiaoan-jihua",
   "displayName": "授课进度计划表模板",
   "description": "将课程元数据、学习任务、学习环节和教学内容转换为授课进度计划表 Typst 源码。",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "Presto",
   "license": "MIT",
   "category": "教育",
