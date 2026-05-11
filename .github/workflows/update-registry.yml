@@ -14,6 +14,10 @@ on:
 
 permissions: {}
 
+concurrency:
+  group: update-template-registry-${{ github.event.client_payload.channel || 'production' }}
+  cancel-in-progress: false
+
 jobs:
   # ─── Job 1: extract（GitHub-hosted，低权限）────────────────────
   # 搜索模板仓库、官方模板下载二进制提取、community 模板从 repo 读取
@@ -99,7 +103,9 @@ jobs:
           git add templates/ registry.json
           git diff --cached --quiet && echo "No changes" && exit 0
           git commit -m "chore: 更新模板注册表"
-          git push
+          target_branch="${GITHUB_REF_NAME:-main}"
+          git pull --rebase origin "${target_branch}"
+          git push origin "HEAD:${target_branch}"
 
       - name: Deploy to registry-deploy
         env:
@@ -129,7 +135,7 @@ jobs:
           rm -rf /tmp/deploy
           git_auth_config=(
             -c credential.helper=
-            -c 'credential.https://github.com.helper=!f() { echo username=x-access-token; echo password=$GH_TOKEN; }; f'
+            -c "credential.https://github.com.helper=!f() { echo username=x-access-token; echo password=\$GH_TOKEN; }; f"
           )
           git "${git_auth_config[@]}" clone https://github.com/Presto-io/registry-deploy.git /tmp/deploy
           mkdir -p "/tmp/deploy/${target_dir}"
@@ -195,4 +201,5 @@ jobs:
             exit 0
           fi
           git commit -m "chore: update ${REGISTRY_CHANNEL} template registry"
+          git "${git_auth_config[@]}" pull --rebase origin main
           git "${git_auth_config[@]}" push
