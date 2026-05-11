@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "updatedAt": "2026-05-11T04:33:19Z",
+  "updatedAt": "2026-05-11T04:50:39Z",
   "templates": [
     {
       "name": "gongwen",
@@ -127,32 +127,32 @@
       "platforms": {
         "darwin-arm64": {
           "url": "https://github.com/Presto-io/presto-official-templates/releases/download/jiaoan-jihua-v1.0.0/presto-template-jiaoan-jihua-darwin-arm64",
-          "sha256": "40387095e996d0347a4c19301d224f6eb60231a65008604d0c6206cab35d104b",
+          "sha256": "6c7ca20fa1368a106da6f7118c5353b8d1b25313c074b39bb740e1710ac49c8c",
           "cdn_url": "https://presto.c-1o.top/templates/jiaoan-jihua/binaries/presto-template-jiaoan-jihua-darwin-arm64"
         },
         "darwin-amd64": {
           "url": "https://github.com/Presto-io/presto-official-templates/releases/download/jiaoan-jihua-v1.0.0/presto-template-jiaoan-jihua-darwin-amd64",
-          "sha256": "269efd9e7a7d5654f1350d27a9f62829aee2d0184f87c9171085191494093698",
+          "sha256": "a938799de7911c944960728ec12a7af536fd6fdbc11b155612fdb03976553b82",
           "cdn_url": "https://presto.c-1o.top/templates/jiaoan-jihua/binaries/presto-template-jiaoan-jihua-darwin-amd64"
         },
         "linux-arm64": {
           "url": "https://github.com/Presto-io/presto-official-templates/releases/download/jiaoan-jihua-v1.0.0/presto-template-jiaoan-jihua-linux-arm64",
-          "sha256": "7136cb016007e6e8f82fbc5d016d4eddc7050e1300a7a0dc1bcf6214a67388af",
+          "sha256": "8614875c03b84b9cdc8a644c0bcb54f95da44f46c2b2dd372957936d06e247db",
           "cdn_url": "https://presto.c-1o.top/templates/jiaoan-jihua/binaries/presto-template-jiaoan-jihua-linux-arm64"
         },
         "linux-amd64": {
           "url": "https://github.com/Presto-io/presto-official-templates/releases/download/jiaoan-jihua-v1.0.0/presto-template-jiaoan-jihua-linux-amd64",
-          "sha256": "93965d8e35328eef7980c7562d8060c46c08267ff490010b6a6c1510fada313f",
+          "sha256": "8f38a127279216baa5fff931256e0ca70659d91e19847214068f1482a7e2f227",
           "cdn_url": "https://presto.c-1o.top/templates/jiaoan-jihua/binaries/presto-template-jiaoan-jihua-linux-amd64"
         },
         "windows-arm64": {
           "url": "https://github.com/Presto-io/presto-official-templates/releases/download/jiaoan-jihua-v1.0.0/presto-template-jiaoan-jihua-windows-arm64.exe",
-          "sha256": "88a8fd03a3b49371141d6806847f51841d506b4b33162edac77e9aefcc3a6a8b",
+          "sha256": "aa36916ac63d6ccc9e8c9b5aba898eec4cce4fe82c0559643c12d9d4f2040f54",
           "cdn_url": "https://presto.c-1o.top/templates/jiaoan-jihua/binaries/presto-template-jiaoan-jihua-windows-arm64.exe"
         },
         "windows-amd64": {
           "url": "https://github.com/Presto-io/presto-official-templates/releases/download/jiaoan-jihua-v1.0.0/presto-template-jiaoan-jihua-windows-amd64.exe",
-          "sha256": "b5b4c8549e42f2a1ac8f3cd52dbcbdded54f4b0541e2c402628abb6865c7b40f",
+          "sha256": "c3d94b16a6eb4c56f26d05c42f9a95028903d43944570b9a29d051887f5703b9",
           "cdn_url": "https://presto.c-1o.top/templates/jiaoan-jihua/binaries/presto-template-jiaoan-jihua-windows-amd64.exe"
         }
       },

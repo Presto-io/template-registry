@@ -576,7 +576,17 @@ def cmd_discover(args):
                 print(f"    {name}: release 版本 {version} 与 payload 版本 {official_version} 不一致，跳过")
                 continue
 
-            if not force and existing_versions.get(name) == version:
+            # Official release dispatches can legitimately target an existing
+            # version when a tag/release was rebuilt. Refresh the registry so
+            # SHA256SUMS and mirrored binaries stay aligned with the current
+            # release assets.
+            is_targeted_official_refresh = (
+                repo_full_name == OFFICIAL_REPO
+                and official_template
+                and name == official_template
+                and official_tag
+            )
+            if not force and not is_targeted_official_refresh and existing_versions.get(name) == version:
                 print(f"    {name}: 版本未变 ({version})，跳过")
                 continue
 
