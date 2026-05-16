@@ -79,11 +79,15 @@ jobs:
       - name: Create PR for version updates
         if: steps.check.outputs.has_updates == 'true'
         env:
+          CI_GPG_KEY_ID: ${{ vars.CI_GPG_KEY_ID }}
+          CI_GPG_PASSPHRASE: ${{ secrets.CI_GPG_PASSPHRASE }}
+          CI_GPG_PRIVATE_KEY: ${{ secrets.CI_GPG_PRIVATE_KEY }}
+          CI_GIT_USER_EMAIL: ${{ vars.CI_GIT_USER_EMAIL }}
+          CI_GIT_USER_NAME: ${{ vars.CI_GIT_USER_NAME }}
           GH_TOKEN: ${{ github.token }}
         run: |
           BRANCH="auto/update-verified-templates-$(date +%Y%m%d-%H%M%S)"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          bash scripts/ci/setup-git-signing.sh
           git checkout -b "$BRANCH"
           git add verified-templates.json
           git commit -m "chore: 更新 verified 模板版本"

@@ -72,16 +72,26 @@ jobs:
         run: python3 scripts/build_registry.py index
 
       - name: Commit registry updates
+        env:
+          CI_GPG_KEY_ID: ${{ vars.CI_GPG_KEY_ID }}
+          CI_GPG_PASSPHRASE: ${{ secrets.CI_GPG_PASSPHRASE }}
+          CI_GPG_PRIVATE_KEY: ${{ secrets.CI_GPG_PRIVATE_KEY }}
+          CI_GIT_USER_EMAIL: ${{ vars.CI_GIT_USER_EMAIL }}
+          CI_GIT_USER_NAME: ${{ vars.CI_GIT_USER_NAME }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
           git add templates/ registry.json
           git diff --cached --quiet && echo "No changes" && exit 0
+          bash scripts/ci/setup-git-signing.sh
           git commit -m "chore: 更新 verified 模板编译产物"
           git push
 
       - name: Deploy to registry-deploy
         env:
+          CI_GPG_KEY_ID: ${{ vars.CI_GPG_KEY_ID }}
+          CI_GPG_PASSPHRASE: ${{ secrets.CI_GPG_PASSPHRASE }}
+          CI_GPG_PRIVATE_KEY: ${{ secrets.CI_GPG_PRIVATE_KEY }}
+          CI_GIT_USER_EMAIL: ${{ vars.CI_GIT_USER_EMAIL }}
+          CI_GIT_USER_NAME: ${{ vars.CI_GIT_USER_NAME }}
           GH_TOKEN: ${{ secrets.PRESTO_PAT }}
         run: |
           test -f output/deploy/registry.json
@@ -92,6 +102,7 @@ jobs:
             -c 'credential.https://github.com.helper=!f() { echo username=x-access-token; echo password=$GH_TOKEN; }; f'
           )
           git "${git_auth_config[@]}" clone https://github.com/Presto-io/registry-deploy.git /tmp/deploy
+          bash scripts/ci/setup-git-signing.sh /tmp/deploy
           mkdir -p /tmp/deploy/templates
           cp output/deploy/registry.json /tmp/deploy/templates/registry.json
           find output/deploy -mindepth 1 -maxdepth 1 -type d | while read -r template_dir; do
@@ -100,8 +111,6 @@ jobs:
             cp -R "${template_dir}" /tmp/deploy/templates/
           done
           cd /tmp/deploy
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
           git add templates/
           if git diff --cached --quiet; then
             echo "No changes to registry"
