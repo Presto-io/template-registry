@@ -20,7 +20,7 @@
       ],
       "trust": "official",
       "manifest_url": "https://presto.c-1o.top/templates/gongwen/manifest.json",
-      "manifest_sha256": "aa8e7a2e154e2ff4776fcb0a648a0ae7293423bf2b95c8cbb571ccaecf53fa3a",
+      "manifest_sha256": "271d73b70b73b87d631a589d27f89fe38e0396f6e8d2b7254c42065fec06b2f5",
       "platforms": {
         "darwin-arm64": {
           "url": "https://github.com/Presto-io/presto-official-templates/releases/download/v1.2.1/presto-template-gongwen-darwin-arm64",
