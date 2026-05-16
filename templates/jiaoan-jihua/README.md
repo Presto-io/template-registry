@@ -1,54 +1,48 @@
-# Presto Official Templates
+# 授课进度计划表模板
 
-Presto 官方免费模板集合。每个模板是一个独立的 Go 程序，遵循 Presto 模板协议（stdin Markdown → stdout Typst）。
+模板 ID：`jiaoan-jihua`
 
-## 包含模板
+`jiaoan-jihua` 将课程元数据、学习任务、学习环节和教学内容转换为授课进度计划表 Typst 源码。它适合按周次和工作日日历生成“工学一体化课程/基本技能课程授课进度计划表”，不是实操教案正文模板。
 
-| 模板 | 说明 |
-|------|------|
-| `gongwen` | 符合 GB/T 9704-2012 标准的类公文排版 |
-| `jiaoan-shicao` | 实操教案 Markdown → 标准表格排版 |
+## 最小输入
 
-## 快速开始
+```markdown
+---
+major_name: "电气自动化技术"
+course_name: "电气设备控制线路安装与调试"
+teacher_name: "张老师"
+class_name: "29WG电气3"
+first_teaching_day: "2026-03-06"
+template: "jiaoan-jihua"
+---
 
-### 构建
+## CA6140卧式车床电气控制线路安装与调试
 
-```bash
-# 构建所有模板
-make build-all
+### 安技教育及旧知识回顾
 
-# 构建单个模板
-make build NAME=gongwen
+安技教育-1
+旧知识回顾-1
 ```
 
-### 测试
+## 输入结构
+
+- YAML front matter 只需描述专业、课程、教师、班级、首个授课日和模板 ID。
+- `##` 表示学习任务。
+- `###` 表示学习环节。
+- `教学内容-数字` 表示一行教学内容及其学时；未写数字时默认 2 学时。
+- 模板内置学校校历，自动推断学年、学期、周次范围和制表人；每日课时默认 8。
+
+## 本地验证
 
 ```bash
-make test
+go run . --example > /tmp/jiaoan-jihua.md
+go run . < /tmp/jiaoan-jihua.md > /tmp/jiaoan-jihua.typ
+typst compile /tmp/jiaoan-jihua.typ /tmp/jiaoan-jihua.pdf
 ```
 
-## Code signing policy
+## 常见错误
 
-Windows `.exe` release assets follow the [Code signing policy](docs/windows-code-signing.md). Public trusted signing is limited to Presto-io controlled official Windows templates and future Presto-reviewed verified Windows templates.
-
-## Privacy
-
-Presto Official Templates run locally and do not collect or transmit personal data. See the [Privacy Policy](docs/privacy-policy.md).
-
-### 安装到 Presto
-
-```bash
-make preview NAME=gongwen
-```
-
-## 开发者
-
-如果你想开发自己的模板，请参考：
-- [CONVENTIONS.md](CONVENTIONS.md) — 模板开发规范
-- [presto-template-starter-go](https://github.com/Presto-io/presto-template-starter-go) — Go 脚手架
-- [presto-template-starter-rust](https://github.com/Presto-io/presto-template-starter-rust) — Rust 脚手架
-- [presto-template-starter-typescript](https://github.com/Presto-io/presto-template-starter-typescript) — TypeScript 脚手架
-
-## 协议
-
-MIT
+- 缺少 `##` 学习任务时，模板会输出占位提示。
+- 缺少 `###` 学习环节时，模板会输出占位提示。
+- 兼容旧输入中的 `calendar_json`；路径不存在时会回退到内置校历，无效 JSON 会显示提示并回退。
+- 需要实操教案正文、教学活动设计或项目化教学单元时，请使用 `jiaoan-shicao`。

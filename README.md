@@ -35,6 +35,7 @@ GitHub 模板仓库（presto-template topic）
 template-registry/
   templates/                    ← CI 生成的模板数据（含 SVG 预览）
     gongwen/
+    jiaoan-jihua/
     jiaoan-shicao/
   registry.json                 ← CI 生成的索引
   scripts/
@@ -99,9 +100,10 @@ docker run --rm -v $(pwd)/output:/work presto-typst-sandbox \
 | 名称 | 分类 | 说明 |
 |------|------|------|
 | `gongwen` | 政务 | 符合 GB/T 9704-2012 标准的类公文排版 |
+| `jiaoan-jihua` | 教育 | 授课进度计划表模板 |
 | `jiaoan-shicao` | 教育 | 教案和实操文档模板 |
 
-官方模板位于 [Presto-io/Presto](https://github.com/Presto-io/Presto) 仓库的 `cmd/gongwen/` 和 `cmd/jiaoan-shicao/` 目录。
+官方模板位于 `presto-official-templates/{gongwen,jiaoan-shicao,jiaoan-jihua}`。
 
 ## 社区模板
 

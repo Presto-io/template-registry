@@ -2,13 +2,22 @@
   "name": "jiaoan-jihua",
   "displayName": "授课进度计划表模板",
   "description": "将课程元数据、学习任务、学习环节和教学内容转换为授课进度计划表 Typst 源码。",
-  "version": "1.0.1",
-  "author": "Presto",
+  "version": "1.0.2",
+  "author": "Presto-io",
   "license": "MIT",
   "category": "教育",
   "keywords": ["授课计划", "教学计划", "工学一体化", "教案"],
   "minPrestoVersion": "1.0.0",
+  "capabilities": { "outputInfo": true },
   "requiredFonts": [
     { "name": "STSong", "displayName": "华文宋体", "url": "https://www.foundertype.com/index.php/FontInfo/index/id/135" }
-  ]
+  ],
+  "frontmatterSchema": {
+    "major_name": { "type": "string" },
+    "course_name": { "type": "string" },
+    "teacher_name": { "type": "string" },
+    "class_name": { "type": "string" },
+    "first_teaching_day": { "type": "string", "format": "YYYY-MM-DD" },
+    "template": { "type": "string", "default": "jiaoan-jihua" }
+  }
 }

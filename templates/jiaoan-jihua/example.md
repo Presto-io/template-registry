@@ -1,15 +1,9 @@
 ---
-school_year: "2025-2026"
-semester: "第一学期"
-week_range: "第1 - 2周"
 major_name: "电气自动化技术"
 course_name: "电气设备控制线路安装与调试"
 teacher_name: "张老师"
 class_name: "29WG电气3"
-prepared_by: "张老师"
-first_teaching_day: "2025-09-01"
-daily_hours: 8
-calendar_json: "presto/calendar.json"
+first_teaching_day: "2026-03-06"
 template: "jiaoan-jihua"
 ---
 
