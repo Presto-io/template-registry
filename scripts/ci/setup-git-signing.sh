@@ -4,18 +4,37 @@ set -euo pipefail
 repo="${1:-.}"
 cd "${repo}"
 
-if [ -z "${CI_GIT_USER_NAME:-}" ] || [ -z "${CI_GIT_USER_EMAIL:-}" ]; then
-  echo "::error::CI_GIT_USER_NAME and CI_GIT_USER_EMAIL are required. They must match a GitHub account with the CI GPG public key attached."
-  exit 1
+configure_unsigned_bot_commit() {
+  local name="${CI_GIT_USER_NAME:-github-actions[bot]}"
+  local email="${CI_GIT_USER_EMAIL:-41898282+github-actions[bot]@users.noreply.github.com}"
+
+  echo "::warning::CI GPG signing is not fully configured; using unsigned ${name} commits. Set CI_GIT_USER_NAME, CI_GIT_USER_EMAIL, and CI_GPG_PRIVATE_KEY to enable signed CI commits."
+  git config user.name "${name}"
+  git config user.email "${email}"
+  git config --unset-all user.signingkey 2>/dev/null || true
+  git config commit.gpgsign false
+  git config tag.gpgSign false
+  git config tag.forceSignAnnotated false
+}
+
+missing_config=false
+for var_name in CI_GIT_USER_NAME CI_GIT_USER_EMAIL CI_GPG_PRIVATE_KEY; do
+  if [ -z "${!var_name:-}" ]; then
+    missing_config=true
+  fi
+done
+
+if [ "${missing_config}" = true ]; then
+  if [ "${CI_REQUIRE_GIT_SIGNING:-false}" = "true" ]; then
+    echo "::error::CI_REQUIRE_GIT_SIGNING=true, but CI_GIT_USER_NAME, CI_GIT_USER_EMAIL, and CI_GPG_PRIVATE_KEY are not all configured."
+    exit 1
+  fi
+  configure_unsigned_bot_commit
+  exit 0
 fi
 
 git config user.name "${CI_GIT_USER_NAME}"
 git config user.email "${CI_GIT_USER_EMAIL}"
-
-if [ -z "${CI_GPG_PRIVATE_KEY:-}" ]; then
-  echo "::error::CI_GPG_PRIVATE_KEY is required for CI commits. Configure the repository or organization secret before this workflow can write to git."
-  exit 1
-fi
 
 base_dir="${RUNNER_TEMP:-/tmp}/presto-ci-gpg-${GITHUB_RUN_ID:-$$}-${RANDOM}"
 gnupg_home="${base_dir}/gnupg"
