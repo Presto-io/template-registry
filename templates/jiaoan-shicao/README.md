@@ -2,6 +2,8 @@
 
 Presto 官方免费模板集合。每个模板是一个独立的 Go 程序，遵循 Presto 模板协议（stdin Markdown → stdout Typst）。
 
+默认转换模式必须把 stdin 中的 Markdown 转换为 stdout 中的非空 Typst 源码。转换失败、panic 或生成空白 Typst 都必须写入 stderr 并以非 0 状态退出；`--manifest`、`--example`、`--version`、`--info` 仍按各自协议输出。
+
 ## 包含模板
 
 | 模板 | 说明 |

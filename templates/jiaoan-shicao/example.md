@@ -4,16 +4,11 @@ course_name: "电工基本技能训练"
 course_attribute: "基本技能课程"
 textbook_name: "电工基本技能训练指导"
 class_name: "机电技术应用 1 班"
-total_hours: "8"
 teacher_name: "张老师"
-use_time: "2026 年 5 月 12 日 —— 2026 年 5 月 15 日"
+first_teaching_day: "2026-03-06"
 ---
 
-## 学习任务分析
-
-学习任务：电工基本技能训练
-课时：8
-起止日期：2026 年 5 月 12 日——2026 年 5 月 15 日
+## 电工基本技能训练
 
 ### 一、学习任务描述
 
